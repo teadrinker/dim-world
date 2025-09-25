@@ -1,0 +1,111 @@
+
+if getGlobal('textToFunc') {  // run unit tests if possible
+
+  unitTest('TestBrace',     '}',   'PARSE_FAIL')
+  unitTest('TestAccess',    'undefined_access',   'PARSE_FAIL')
+  unitTest('Test00',        'a = 1+2*3 == 30 + 10; a', false)
+  unitTest('Test0',         '1-2*2', -3)
+  unitTest('Test1',         '1 -2*(2+ 1*3) * 23 +2 -3*3', -236)
+  unitTest('Test2',         'a = 10; a = a * 2; a + 1', 21)
+  unitTest('Test2b',        'a = 10; if(a == 5) { return }     a', 10)
+  unitTest('Test2c',        'a = 10; if(a == 5) { return 2 }   a', 10)
+  unitTest('Test2d',        'a = 10; if(a == 5) { return 2; }  a', 10)
+//unitTest('Test2e',        'a = 10; if(a == 5) { return ; } a', 10)                        // FIX! this should be ok!
+//unitTest('Test2f',        'a = 10; if(a == 5) { return ; lax = 1} a', 'PARSE_FAIL')       // FIX! code after return is not ok!
+//unitTest('Test2g',        'a = 10; if(a == 5) { return 2; lax = 1} a', 'PARSE_FAIL')		// FIX! code after return is not ok!
+  unitTest('Test2h',        'a = 10; if (a == 5 and a==3) or\n a == 10 or\n a == 20 { return 2 } a', 2) 
+  unitTest('Test3',         'a = 10; a = 20 + a ; a', 30)
+  unitTest('Test5',         'a = 10; a = 1 + a; a', 11)
+  unitTest('Test6',         'a = 10; if (a == 10) { beer=2 } a = a + 1; beer', 2)  // should this really work ?
+  unitTest('Test7a',        'xxx = func { 34 } ; xxx() + 1', 35)
+  unitTest('Test7b',        'xxx = func { return 34 } ; xxx() + 1', 35)
+  unitTest('Test8',         'yyy = func x,y,z { return x * y + z - 1 }; yyy(2,3,4)', 9)
+  unitTest('Test9',         'while not 4{ xx = 3}', nil)
+  unitTest('TestIf1',       'if -2 { bb=2;aa=23+2*3 } else if bb == 4 { bb=33} else { bb = 3 }',  nil)
+  unitTest('TestIf2',       'if -2 { bb=2;aa=23+2*3 } else if bb == 4 { bb=33} else { bb = 3 } else {}',  'PARSE_FAIL')
+  unitTest('TestIf3',       'if -2 { bb=2;aa=23+2*3 } elseif bb == 4 { }',  'PARSE_FAIL')
+  unitTest('TestIf4',       'a = 1 ; print(a+2*10) if false or false ; a',  1)
+  unitTest('TestIf5',       'a = 1   ; a    = 4 if true ; a   ',  4)
+  unitTest('TestIf6',       'a = [1] ; a[0] = 4 if true ; a[0]',  4)
+  unitTest('TestIf7',       "a = 1 ;\n a = a + 2 if a != 3 ; nil",  nil)
+  unitTest('TestIf8',       "a = 1 ;\n a = a + 2 if a != 3",  nil)
+ // unitTest('TestIf9',       "(func a { a() if a }) ; nil",  nil)
+  unitTest('TestIf10',       "curPath = '' ;\n curPath = curPath..'/' if curPath != '' ; nil",  nil)
+  unitTest('TestStringLit', 'xx = "si\\"ll\'"; zz=\'"Glass"\\\'"\'', nil)
+  unitTest('Test12',        'aa = 1; xx = [4,10,[[22]],aa*202+(32)]; xx[2][0][0]', 22)
+  unitTest('Test13',        'xx = {x = 2, y = {xx=2,list=[22,2,3]}} ; xx["x"]', 2)
+  unitTest('Test13b',       'xx = {\' x\' = 2, " y " = {xx=2,list=[22,2,3]}} ; xx[" x"]', 2)
+  unitTest('Test13c',       'xx = {     +boolFlag, r=4} ; xx.boolFlag', true)
+  unitTest('Test13d',       'xx = {s=3, -boolFlag     } ; xx.boolFlag', false)
+  unitTest('Test14',        'f = func x,y { return [[1-x+y],4,5,43,3] } ; ret = f(2,1,4,"dd"); ret[2]', 5)
+  unitTest('Test15',        'a=[[6]]; a[0][0] = 2; a[0][0]', 2)
+  unitTest('Test16',        'a=func x,y { return [[6]] }(); a[0][0] = 2; a[0][0]', 2)
+  
+  unitTest('Test17',        'emFu = func { } ; emFu()', nil)
+  unitTest('Test18',        'fuFu = func { xxx = func { return 34 } ; xxx() + 1 } ; fuFu()', 35)
+  unitTest('Test19',        'emFu2 = func { ; } ; emFu2()', nil)
+  unitTest('Test20',        'ifFu = func { if(nil) { emFu = 1 } } ; ifFu()', nil)
+  unitTest('Test21',        'elFu = func { if(nil) { emFu = 1 } else { emFu = 2 } } ; elFu()', nil)
+  unitTest('Test22',        'asFu = func { a = 1+2*3 == 30 + 10; a } ; asFu()', false)
+  
+  unitTest('TestFor',        'r = 10; for i *  3 { r = r + i } ; r', 13) 
+  unitTest('TestFor2',       'r = 10; for i * -3 { r = r + i } ; r', 10) 
+  unitTest('TestFor3',       'r = 10; for i * 4, -2 { r = r + i } ; r', 8) 
+  unitTest('TestFor3',       'r = 10; for * 5 { r = r + 1 } ; r', 15) 
+  unitTest('TestFor4',       'r = 10; for * 3 { for * 3 { r = r + 1 }} ; r', 19) 
+
+  unitTest('TestForV',       'r = 1; for v    in {a=2, b=3} { r = r + v     } ; r', 6)
+  unitTest('TestForKV',      't = 1; for k, v in {a=2, b=3} { t = t + v     } ; t', 6)
+  unitTest('TestForV2',      'r = 1; for v    in [2,3]      { r = r + v     } ; r', 6)
+  unitTest('TestForKV2',     't = 1; for k, v in [2,3]      { t = t + k + v } ; t', 7)
+  unitTest('TestForStep',    'sum = 0 ; t = ""; for k = 0, 10, 2 { sum = sum + 1; t = t .. k } t .. sum', '02468106')
+
+//  unitTest('TestForStep2',   'sum = 0 ; t = ""; for k = 0,-10,-2 { sum = sum + 1; t = t .. k } t .. sum', '0-2-4-6-8-106')  // not implemented in any sensible way yet
+                                            // would be nice if directioncheck could be skipped (for compile-time-constant step case)
+                                             // solve non-compile-time-constant step by always iterating forward, and then multiply with sign inside loop
+                                                                                      
+//  unitTest('TestForK2',      'i = 5; for k in {a=2, b=3}   { break; i = 10 } ; i', 5)
+//  unitTest('TestForKV2',     'i = 5; for k,v in {a=2, b=3} { break; i = 10 } ; i', 5)
+//  unitTest('TestForStep2',   'i = 5; for k = 0,10          { break; i = 10 } ; i', 5)
+//  unitTest('TestForK3',      'i = 5; for k in {a=2, b=3}   { continue; i = 10 } ; i', 5)
+//  unitTest('TestForKV3',     'i = 5; for k,v in {a=2, b=3} { continue; i = 10 } ; i', 5)
+//  unitTest('TestForStep3',   'i = 5; for k = 0,10          { continue; i = 10 } ; i', 5)
+//  unitTest('TestForK3',      'i = 5; for k in {a=2, b=3}   { return; i = 10 } ; i', 5)
+//  unitTest('TestForKV3',     'i = 5; for k,v in {a=2, b=3} { return; i = 10 } ; i', 5)
+//  unitTest('TestForStep3',   'i = 5; for k = 0,10          { return; i = 10 } ; i', 5)
+  unitTest('TestComment1a',  '// d\n', nil)
+  unitTest('TestComment1b',  '// d', nil)
+  unitTest('TestComment2',   'test = [2,4,6,7,8]; // single line\n test[/* multi \nline */ 2]', 6)
+//unitTest('TestComment3',   'test = [2,4,6,7,8]; // single line\n test[/* multi \nline * / 2]', 6)  // FIX! this breaks the parser, missing end of comment not detected?
+  unitTest('Test21',         '6 or nil', 6)
+  unitTest('Test22',         '{} ; nil', nil)
+  unitTest('Test23access',   'xx = [22,33]; xx[0 + 1 and false or 4 / 2   and  func { 4 }() - 3]', 33)
+  unitTest('NilIteration',   't = {a=2, b=3} ; for k, v in t { t[k] = nil } ; n = 0 ; for k, v in t { n = n + 1 } ; n', 0)  // forkv should never iterate nil for tables
+  unitTest('skipCommaArray1','t = [2\n3] ; t[1]', 3)
+  unitTest('skipCommaArray2','t = [2,\n3] ; t[1]', 3)
+  unitTest('skipCommaArray3','t = [2\n,3] ; t[1]', 3)
+  unitTest('skipCommaArray4','t = [\n2\n3\n] ; t[1]', 3)
+  unitTest('skipCommaTable1','t = {a=2\nb=3} ; t.b', 3)
+  unitTest('skipCommaTable2','t = {a=2,\nb=3} ; t.b', 3)
+  unitTest('skipCommaTable3','t = {a=2\n,b=3} ; t.b', 3)
+  unitTest('skipCommaTable4','t = {\na=2\nb=3\n} ; t.b', 3)
+  unitTest('skipCommaFunc1', 't = [] ; push(t\n3) ; t[0]', 3)
+  unitTest('skipCommaFunc2', 't = [] ; push(t,\n3) ; t[0]', 3)
+  unitTest('skipCommaFunc3', 't = [] ; push(t\n,3) ; t[0]', 3)
+  unitTest('skipCommaFunc4', 't = [] ; push(\nt\n3\n) ; t[0]', 3)
+
+//  unitTest('classnew', "c = class { expose hello = func { 'world' }   } ; instance = new c; instance.hello()", 'world')   this should work
+  unitTest('classnew', "c = class { expose hello = func { 'world' } ; } ; instance = new c; instance.hello()", 'world')
+  unitTest('classnew', "c = class { expose hello = func { 'world' } ; } ; instance = new c(); instance.hello()", 'world')
+  unitTest('classnew', "c = class { expose hello = func { 'world' } ; } ; instance = new c(2); instance.hello()", 'world')
+
+  unitTest('DoubleQuote', "xxx = 'hej''san'; 4", 'PARSE_FAIL') 							// this should not pass through the parserContext.parse() without error!!!
+
+//unitTest('reach', 'if (true) { reach=1 } ; reach', 'PARSE_FAIL')	// this should give parsing error,  all scopes need nameSpaceBlockBegin/End for Lua compatibility
+
+}
+
+
+unitTestReport()
+
+

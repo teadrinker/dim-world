@@ -2,30 +2,35 @@
 
 # Dim World - Experimental App Framework
 
-2010-2014, I tried to build a web based application framework.
+2012-2014, I tried to build a web based application framework.
 The idea was to do as much as possible in client-side js, and
 then have a very thin php backend (~300 lines)
 
-The whole endevor was centered around dscript, an experimental transpiler.
-The only project developed using this framework was [Spine](https://github.com/teadrinker/spine) which was also abandoned.
+The whole endeavor was centered around dscript, an experimental transpiler.
+The only project developed using this framework was [Spine](https://teadrinker.net/spine/) which was also abandoned.
 
-I'm releasing this along with Spine, since it's still seems to work (put folder in xampp htdocs/dw), and
-I used it make some fixes and changes making the Spine presentation for [LIVE 2025](https://liveprog.org/)  
+I'm releasing this along with [Spine](https://teadrinker.net/spine/), since it shows
+better debug info than the compiled js version in case someone wants to mess around with the Spine implementation...
+
+I've cleaned up the folder structure, but the code is mostly in prototype/pre-alpha state.
 
 # dscript
 
 Dscript is a crude transcompiler (text in, text out).
-It generates code using a "backend", which is essentially
+It generates code using a backend config, which is mostly
 a collection of code-snippets. Think automated cut'n paste.
 
-The existing backends are **js, lua, php, cpp and glsl**, but I only
-really tested the js one, so don't expect the others to work.
+dscript (simply dynamic script) was designed to target **js**
+and **Lua**, and a programming style leaning heavy on closures.
+At the time, js did not yet have `const`, `let`, `() => {}`
+and debugging in different browsers could be hard, so it
+also served as a way to inject C-style debbuging.
 
-If this seems interesting, you should probably
-check out a more mature transpiler like fusion:
+Additional backends **php, cpp and glsl**, were never completed.
 
-* https://fusion-lang.org/	
-* https://github.com/fusionlanguage/fut
+Only the js backend was actually used, so ***if this seems interesting,
+you should probably check out a transpiler like [Fusion](https://fusion-lang.org/) or [Haxe](https://haxe.org/) instead!***	
+
 
 #### Syntax:
 	dscript                 javascript output (white space was adjusted)
@@ -82,6 +87,7 @@ type (unlike javascript which gives you strings)
 
  * It is ok to omit commas when defining
    multi-line literals for arrays and objects
+   (not sure if this actually is a good idea)
 
 		myObj = {
 			name : 'Turing'
@@ -120,6 +126,12 @@ type (unlike javascript which gives you strings)
 
 		trace(gui,'Trace something gui-related...')
 
+ * When using dscript to transpile multiple texts,
+   it collects global read / write dependencies per
+   compilation unit, which are used to complain when
+   using undefined globals and to strip out unused
+   code when compiling release build
+
  * Function hooks, automatically generate extra calls
    for every function begin / function end, useful for 
    debugging and monitoring. (Also stripped on release) 
@@ -141,7 +153,7 @@ type (unlike javascript which gives you strings)
 
 ### Unfinished / Experimental Type Support
 
-Dscript tracks names, types and metadata (such as global
+Dscript tracks names, types and meta data (such as global
 read and write dependencies) along the way and keeps a 
 namespace state in the parser context. Using the C++/GLSL
 backend, it will try to infer types. It also support the

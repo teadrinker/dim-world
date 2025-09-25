@@ -1,0 +1,111 @@
+
+
+global guiIdle = func {
+	flushTimers()
+}
+
+totW = 220
+totH = 600
+
+#{js totW = window.innerWidth; totH = window.innerHeight #}
+
+size = {w:(totW*0.7)/2, h:totH/3}
+margin = 20
+
+sandboxPrefix = create('s_')
+textDs  = wrapSetToModel(gHookContext,  {text = '\n\no = 0\n\n', rect = [   0,    0, size.w-margin, size.h-margin] }, createTextInput)
+textErr = wrapSetToModel(gHookContext,  {text = '', rect = [   size.w, 0, size.w-margin, size.h-margin] }, createTextInput)
+
+outCode = ['js', 'lua', 'glsl', 'cpp']
+outText = {}
+currentBackend = 'js'
+for i,name in outCode {
+	outText[name] = wrapSetToModel(gHookContext,  {text = '-',  rect = [bit(i,0)*size.w, size.h + bit(i,1)*size.h, size.w-margin, size.h-margin] }, createTextInput)
+}
+
+
+
+// state = createSimpleURLAppState()
+// state.add({text = textDs.text})
+
+db = createDb()
+state = createState(db) 
+state.add({text = textDs.text})
+syncDbToHttpFragment(db, {interval = 0.5, stateDefaults = state.defaults, omitDefaults = false, onDbChangedFromFragment = state.sync })
+
+
+baseLibCode = { 'std/iolib.js' = [],  'std/stdlib.txt' = [] }
+itemsLeft = countItems(baseLibCode)
+baseLibComplete = nil
+
+for url, codeDest in baseLibCode {
+	httpResource(url, nil, func err, str {
+		if err {
+			throw('loadAndExecuteNext() '..url..' :'..err)
+		}
+		for k,v in split(str, "##".."###") {
+			push(codeDest, v)
+		}
+		itemsLeft = itemsLeft - 1
+		if itemsLeft == 0 {
+			baseLibComplete = baseLibCode['std/iolib.js'] .. baseLibCode['std/stdlib.txt']
+		}
+	})
+}
+
+isRelease = true
+
+lastDelay = nil
+hook(gHookContext, textDs.text, func {
+	remove(lastDelay)
+	lastDelay = delay(0.4, func {
+		if not baseLibComplete {
+			set(textErr.text, "waiting for baselibs")
+			return			
+		}
+		runtime = createRuntime(get(sandboxPrefix))
+		runtime.registerGlobals(createIoLib(runtime.prefix).data)
+		parserContext = createDScript(runtime)
+		ttf = runtime.getGlobal('textToFunc')
+		for i,code in baseLibComplete {
+			result = ttf(code) // parse and execute using current backend
+			tryCall(result.func)
+		}
+		parserContext.setConfig({backend = currentBackend, release = isRelease, prefix = "r_"})
+		result = ttf(get(textDs.text), 'testmain') // parse and execute using current backend
+		if result.error {
+			set(textErr.text, result.error)
+			for i,name in outCode {
+				set(outText[name].text, '')
+			}
+		} else {
+			set(textErr.text, 'Compiled ok, now try running...')
+			finalResult = tryCall(func { serialize(tryCall(result.func).ret, nil, true, true) })		
+			graph = generateCodeConnectionGraph(runtime.globalMeta)
+			testmainDependencies = getCodeConnectionGraphDependencies(graph, 'testmain')
+			for i = 0, len(outCode) - 1 {
+				name = outCode[i]
+				joinedCode = []
+				parserContext.setConfig({backend = name, release = isRelease, prefix = "r_"})
+				sortedForEach(testmainDependencies, func a,b { a.orderId > b.orderId }, func id, v {
+					if v.dscriptCode {
+						push(joinedCode, '\n\n\n\n')
+						tmp = parserContext.parse(v.dscriptCode, name..'_'..id)	
+						push(joinedCode, tmp.dnative or tmp.error or 'error???')
+						push(joinedCode, '();')
+					}
+				})				
+				if name == currentBackend {
+					push(joinedCode, result.dnative)
+				} else {
+					tmp = parserContext.parse(get(textDs.text), name..'_testmain')	
+					push(joinedCode, tmp.dnative or tmp.error or 'error???')
+				}
+				joinedCode = arrayConcatToString(joinedCode)
+				set(outText[name].text, joinedCode)			
+			}
+			set(textErr.text, 'Compiled ok\n\nreturned:\n\n' .. (finalResult.ret or finalResult.error) )
+		}
+		remove(runtime)
+	})
+})

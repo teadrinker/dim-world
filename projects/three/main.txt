@@ -1,0 +1,430 @@
+
+
+	api spine_isObj = func x, _class  { x != nil and x.___class == _class }
+
+#####
+
+	api spine_hookAttributes = func composite, args, curValues, callbacks {
+		for key, defVal in curValues {
+
+			f = func v { curValues[key] = v.get() }
+			if type(callbacks) == 'table' { f = func v { curValues[key] = v.get() ; if callbacks[key] { callbacks[key](key) } } }
+			else if type(callbacks) == 'func' {  f = func v { curValues[key] = v.get() ; callbacks(key) } }
+
+			trace(spine, 'spine_hookAttributes '..key)
+
+			defT = type(defVal)
+			if defT == 'array' {
+				ln = len(defVal)
+				if ln == 2 and type(defVal[0]) == 'number' and type(defVal[1]) == 'number' {
+					composite.add( spine_createVec2Conn(args, key, {def = defVal}, f))
+				} else if ln == 3 and type(defVal[0]) == 'number' and type(defVal[1]) == 'number' and type(defVal[2]) == 'number' {
+					composite.add( spine_createVec3Conn(args, key, {def = defVal}, f))
+				} else {
+					print('spine_hookAttributes unknown array type '..toStr(defVal))
+				}
+			} else {
+				composite.add( spine_createValueConnection(args, key, {def = defVal}, f))
+			}
+		}
+	}
+
+#####
+
+api createWrappedThreeObj = func obj, threeTypeName, threeObj, returnVal {
+	obj = obj or createComposite()
+
+	obj.add(nil, 'threeObj')	
+	trace(THREEjs, '(re)create threeObj '..threeTypeName..(returnVal and ' with returnVal' or ''))
+	obj.add({
+		remove = func {
+			if threeObj.parent { threeObj.parent.remove(threeObj) }
+			if threeObj.dispose { threeObj.dispose() }
+		}
+	}, 'threeObj')	
+
+	if returnVal {
+		set(returnVal, {___class = 'three' + threeTypeName, threeObj = threeObj })
+	}
+
+	return obj
+}
+
+#####
+
+api setThreePos = func o, pos {
+	if o {
+		o.position.x = pos[0]
+		o.position.y = pos[1]
+		o.position.z = pos[2]	
+	}
+}
+
+api setThreeRot = func o, rot {
+	if o {
+		o.rotation.x = rot[0]
+		o.rotation.y = rot[1]
+		o.rotation.z = rot[2]
+	}
+}
+
+api setThreeScale = func o, scale {
+	if o {
+		o.scale.x = scale
+		o.scale.y = scale
+		o.scale.z = scale
+	}
+}
+#####
+	
+api spineComp_BoxGeometry = func block, args, returnVal {
+	values = [200, -1, -1, 1, 1, 1]
+	
+	obj = createComposite()
+	obj.add({remove = func { print('BoxGeometry Deleted!') } })
+	waiting = false
+	updateBoxGeometry = func {
+		waiting = false
+		threeObj = nil
+		if obj.__debug_REMOVECALLEDCOMPLETE {
+			print('BoxGeometry:unexpected callback to deleted object')
+			return
+		}	
+
+		#{ js threeObj = new THREE.BoxGeometry(  values[0]
+												,values[1] != -1 ? values[1] : values[0]
+												,values[2] != -1 ? values[2] : values[0]
+												,values[3]
+												,values[4]
+												,values[5]
+												); 
+		#}
+
+		trace(THREEjs, 'create BoxGeometry')
+		createWrappedThreeObj(obj, 'Geometry', threeObj, returnVal)
+	}
+
+	spine_hookAttributes(obj, args, values, func key {
+		if obj.__debug_REMOVECALLEDCOMPLETE {
+			print('BoxGeometry:unexpected callback to deleted object: key='..key)
+			return
+		}
+		if not waiting { later(updateBoxGeometry) ; waiting = true }
+	})
+
+	return obj
+}
+
+#####
+	
+api spineComp_Material = func block, args, returnVal {
+	threeObj = nil
+
+	values = {
+		map : ''
+	}
+
+	#{ js
+
+		var texture = THREE.ImageUtils.loadTexture( 'three/crate.gif' );
+
+		threeObj = new THREE.MeshBasicMaterial( { map: texture } );
+	#}
+
+	trace(THREEjs, 'Material: created three Material')
+	obj = createWrappedThreeObj(nil, 'Material', threeObj, returnVal)
+
+	spine_hookAttributes(obj, args, values, func key {
+		if key == 'map' {
+
+	#{ js
+			var texture = THREE.ImageUtils.loadTexture( values.map );
+			threeObj.map = texture
+			threeObj.needsUpdate = true
+	#}
+
+		}
+	})
+
+	return obj
+}
+
+#####
+	
+api spineComp_Mesh = func block, args, returnVal {
+
+	values = {
+		pos = [0,0,0]
+		rot = [0,0,0]
+		scale = 1
+		geometry = uninitialized
+		material = uninitialized
+	}
+
+	obj = createComposite()
+
+	threeObj = nil
+	sizeChanged = true
+	invalidateSize = func { sizeChanged = true }
+	once = obj.add( createLaterOnce() )
+	updateMesh = func key {
+
+		if obj.__debug_REMOVECALLEDCOMPLETE {
+			print('Mesh:unexpected callback to deleted object '..key)
+			return
+		}	
+
+		trace(THREEjs, 'Mesh: attribute changed '..key)
+
+		once.do(func {
+			threeObj = nil
+
+			if spine_isObj(values.geometry, 'threeGeometry') and spine_isObj(values.material, 'threeMaterial') {
+				geo = values.geometry.threeObj
+				mat = values.material.threeObj
+
+				#{ js threeObj = new THREE.Mesh( geo, mat ); #}	
+				setThreePos(threeObj, values.pos)
+				setThreeRot(threeObj, values.rot)
+				setThreeScale(threeObj, values.scale)
+
+				trace(THREEjs, 'Mesh: three mesh created '..key..' '..toStr(threeObj,30))
+
+				createWrappedThreeObj(obj, 'Mesh', threeObj, returnVal)
+				print('returnVal  '..toStr(get(returnVal),30))
+			} else {
+				trace(THREEjs, 'Mesh: did not create')
+				trace(THREEjs,  '\n  '..toStr(values.geometry,30)..'\n  '..toStr(values.material,30))
+				obj.add(nil, 'threeObj')
+				if obj.__debug_REMOVECALLEDCOMPLETE {
+					print('Mesh:unexpected callback to deleted object '..key)
+					return
+				}	
+				set(returnVal, 'salt')
+			}
+			print('returnVal  '..toStr(get(returnVal),30))
+		})
+	}
+	spine_hookAttributes(obj, args, values, {
+		pos = func { setThreePos(threeObj, values.pos) }
+		rot = func { setThreeRot(threeObj, values.rot) }
+		scale = func { setThreeScale(threeObj, values.scale) }
+
+		geometry = updateMesh
+		material = updateMesh		
+	})	
+
+	return obj
+}
+
+#####
+
+api spineComp_Scene = func block, args, returnVal {
+	threeObj = nil
+
+	#{ js threeObj = new THREE.Scene(); #}
+	trace(THREEjs, 'create Scene')
+
+	obj = createWrappedThreeObj(nil, 'Scene', threeObj, returnVal)
+
+	obj.add(spine_createArrayConnection(args, 'objects', nil, func key, val {
+		objToAdd = val != nil and val.threeObj
+		if objToAdd {
+			threeObj.add(objToAdd) // add object to scene
+			trace(THREEjs, 'Scene: added object to scene')
+
+			return {
+				remove = func {
+					if objToAdd.parent {
+						objToAdd.parent.remove(objToAdd)
+						trace(THREEjs, 'removed object from scene (deleted from objects array)')
+					}
+				}
+			}		
+		} else {
+			print('Scene: WARNING, failed to add '..toStr(val))
+		}
+
+		return { remove = func {} } // hmm, allow nil here?
+	}))
+
+	return obj
+}
+
+#####
+	
+api spineComp_SceneTest = func block, args, returnVal {
+	threeObj = nil
+
+	#{ js
+		threeObj = new THREE.Scene();
+
+		var geometry = new THREE.BoxGeometry( 200, 200, 200 );
+
+		var texture = THREE.ImageUtils.loadTexture( 'three/crate.gif' );
+		//texture.anisotropy = renderer.getMaxAnisotropy();
+
+		var material = new THREE.MeshBasicMaterial( { map: texture } );
+
+		var mesh = new THREE.Mesh( geometry, material );
+		threeObj.add( mesh );
+	#}
+
+	obj = createWrappedThreeObj(nil, 'Scene', threeObj, returnVal)
+	trace(THREEjs, 'created scenetest')
+	obj.add({
+		remove = func {
+			trace(THREEjs, 'del scenetest')
+		}
+	})
+
+	return obj
+}
+
+#####
+	
+api spineComp_Camera = func block, args, returnVal {
+
+	values = {
+		pos = [0,0,0]
+		fov = 45
+		aspect = 1
+		near = 1
+		far = 1000
+	}
+
+	threeObj = nil
+
+	#{ js threeObj = new THREE.PerspectiveCamera( values.fov, values.aspect, values.near, values.far ) #}
+
+	trace(THREEjs, 'create Camera')
+
+	handle = {___class = 'threeCamera', threeObj = threeObj, values = values, valid = false }
+
+	obj = createWrappedThreeObj(nil, 'Camera', threeObj)
+
+	spine_hookAttributes(obj, args, values, {
+		pos    = func { handle.valid = false }
+		aspect = func { handle.valid = false } // don't update aspect yet, wait until we have resolution
+		fov    = func { handle.valid = false ; threeObj.fov  = values.fov  }
+		near   = func { handle.valid = false ; threeObj.near = values.near }
+		far    = func { handle.valid = false ; threeObj.far  = values.far  }
+	})
+	obj.add( { remove = func {
+		trace(THREEjs, 'del Camera')
+	}})
+	set(returnVal, handle)
+
+	return obj
+}
+
+#####
+
+
+
+api spineComp_Renderer = func block, args, returnVal {
+	threeObj = nil
+
+	#{ js 
+		threeObj = window.WebGLRenderingContext && document.createElement('canvas').getContext('webgl') ? 
+			new THREE.WebGLRenderer() : new THREE.CanvasRenderer()
+	//	threeObj = new THREE.WebGLRenderer()
+
+		threeObj.setPixelRatio( window.devicePixelRatio );
+
+		threeObj.setSize( 32, 32 );
+		document.body.appendChild( threeObj.domElement );
+	#}
+
+	trace(THREEjs, 'create Renderer')
+
+	values = {
+		w = 32
+		h = 32
+		scene = uninitialized
+		camera = uninitialized
+	}
+
+	obj = createComposite()
+	sizeChanged = true
+	invalidateSize = func { sizeChanged = true }
+	spine_hookAttributes(obj, args, values, { w = invalidateSize, h = invalidateSize})	
+
+	threeJsRenderer_draw = func {
+		if spine_isObj(values.scene, 'threeScene') and spine_isObj(values.camera, 'threeCamera') {
+			camHandle = values.camera
+			cam = camHandle.threeObj
+			scene = values.scene.threeObj
+			if sizeChanged or not camHandle.valid {
+				cam.position.x = camHandle.values.pos[0]
+				cam.position.y = camHandle.values.pos[1]
+				cam.position.z = camHandle.values.pos[2]
+				cam.aspect = camHandle.values.aspect * (values.w / values.h)
+				cam.updateProjectionMatrix();
+				camHandle.valid = true
+			}
+			if sizeChanged {
+				print('newSize '..values.w..' '..values.h)
+				threeObj.setSize( values.w, values.h );
+			}
+			sizeChanged = false
+
+			//threeObj.render( scene, cam, nil, true );
+			threeObj.render( scene, cam, nil, true );
+
+		} else {
+			print('Renderer missing scene or camera')
+		}	
+	}
+
+	obj.add(idleEvent.register(func { global __wantDraw = true }))
+	obj.add(drawEvent.register(threeJsRenderer_draw))
+	obj.add({ remove = func {
+		trace(THREEjs, 'del Renderer')
+		#{ js  document.body.removeChild( threeObj.domElement ); #}
+		if threeObj.parent { threeObj.parent.remove(threeObj) }
+		if threeObj.dispose { threeObj.dispose() }
+	}})
+
+	return obj
+}
+
+
+
+#####
+
+
+defCode = '''
+
+run
+  t = getTime()
+  box = BoxGeometry 200
+  mat1 = Material map = 'three/plaster.jpg'
+  mat2 = Material map = 'three/crate.gif'
+  obj1 = Mesh geometry = box, material = mat1, pos = 170 * [sin(t  ),0,cos(t  )], rot = [0,t*2,t]
+  obj2 = Mesh geometry = box, material = mat2, pos = 170 * [sin(t+3),0,cos(t+3)], rot = [t*2,t,0]
+  scene = Scene objects = [obj1, obj2]
+  cam = Camera pos = [0, 0, 450], fov = 80
+  Renderer w = 1280, h = 768, scene = scene, camera = cam
+ 
+'''
+
+getThreeJs() // this makes build system work
+
+createSpineApp({
+
+	onRun = func app, block {
+		components = app.injectComponents(block, {
+			Renderer        = spineComp_Renderer
+			Camera          = spineComp_Camera
+			SceneTest       = spineComp_SceneTest
+			BoxGeometry     = spineComp_BoxGeometry
+			Material        = spineComp_Material
+			Mesh            = spineComp_Mesh
+			Scene           = spineComp_Scene
+		})
+	}
+
+	code = defCode
+
+})

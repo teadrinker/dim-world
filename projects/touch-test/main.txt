@@ -1,0 +1,498 @@
+
+guiContext = createGuiContext()
+bd = guiContext.getBasicDraw()
+
+guiContext.setCanvasQuality(0.125)
+//gDebugConsoleSize = nil
+
+global guiDraw = func {
+//	fillColor(random() > 0.5 and '#FFAA00' or '#666666')
+//	fillRect(10+random()*10,10+random()*10,120,120)
+}
+
+global guiIdle = func {
+	flushTimers()
+	__wantDraw = true
+}
+
+
+print('LAX')
+
+
+
+
+
+
+
+
+	/*
+
+findViewAtPos = func node, x, y {
+	it = getLast(node)
+	while it {
+		x1 = it.x1 ; x2 = it.x2 ; y1 = it.y1 ; y2 = it.y2
+		if x > x1 and x < x2 and y > y1 and y < y2 {
+			ret = findViewAtPos(it)
+			if ret         { return ret }
+			if it.wantDrag { return it }
+		}
+		it = it.prev
+	}
+}
+interactiveView = {
+	input = func id, event, data {   // event is a string that can be dragStart/drag/dragStop hoverStart/hover/hoverStop
+		if event == 'dragStart' {
+
+		} else if event == 'dragStop' {
+		}
+	}
+	resize = func w,h {
+
+	}
+
+	draw = 
+}
+
+// split view idea: when pressing on empty space, a cross popup appears, divide horiz, vert or both
+/* 
+      vertical
+       split
+        | 
+     -- o --  horisontal split
+   split|
+   v + h
+
+uiCanvas min = [-10,-10], max = [10,10]
+  p1_coord = [4,6]
+  p1 = point p1_coord
+  p2 = point [3,2]
+  line [2,3],[4,5]
+  line p1,p2
+  circle p2, 1
+
+texture w = 100, h = 200, min = (0,0), max = (1,1)
+  rotate 45
+  offset 0.25, 0.25
+
+
+*/
+
+
+/*
+
+gAnimationFrameCounter = create(0)
+onNextAnimationFrame = func f {
+	hook(gHookContext, gAnimationFrameCounter)
+}
+
+
+/////
+
+// use plain array [a,b,c,d,e,f] for 2d transform (order is same as svg and canvas specs)
+// a c e
+// b d f
+// 0 0 1
+
+apply2dScale        = func m, p { [p[0]*m[0] + p[1]*m[2]       ,  p[0]*m[1] + p[1]*m[3]       ] }
+apply2dTransform    = func m, p { [p[0]*m[0] + p[1]*m[2] + m[4],  p[0]*m[1] + p[1]*m[3] + m[5]] }
+transformToMat      = func a { [[a[0], a[2], a[4]],
+								[a[1], a[3], a[5]], 
+								[0,    0,    1   ]] }
+matToTransform      = func m { [m[0][0], m[1][0], m[0][1], m[1][1], m[0][2], m[1][2] ] }
+combine2dTransforms = func a, b { matToTransform(matrixMul(transformToMat(a), transformToMat(b))) } // todo optimize?
+t2dTranslate  = func x, y {                       [1, 0, 0, 1, x, y] }
+t2dRotate     = func a    { s=sin(a) ; c=cos(a) ; [c, s,-s, c, 0, 0] }
+t2dScale      = func x, y {                       [x, 0, 0, y, 0, 0] }
+v2add = func a, b { [a+a, b+b] }
+v2sub = func a, b { [a-a, b-b] }
+
+////
+
+inputFuzzMargin = 12
+inputFuzzMarginSquared = pow(inputFuzzMargin, 2)
+inputHitTestPointToPoint = func a, b {
+	xd = a[0] - b[0]
+	yd = a[1] - b[1]
+	magsqr = xd*xd + yd*yd
+	if magsqr < inputFuzzMarginSquared {
+		return sqrt(magsqr / inputFuzzMarginSquared) 
+	}
+}
+
+createUiPixelBufferContext = func {
+	drawablesById = {}
+	render = func ctx {
+		matStack = []
+		funcs = nil
+		funcs = {
+			g = func o {
+				m = o.matrix   // svg matrix is inside the transform (text) attribute
+				if m {
+					m = combine2dTransforms(getLast(matStack), m)
+					push(matStack, m) 
+					bd.setTransform(m[0],m[1],m[2],m[3],m[4],m[5])
+				}
+				subnodes = o.sn
+				if subnodes {
+					for i, v in subnodes {
+						vt = type(v)
+						drawable = vt == 'table' and v or drawablesById[v]
+						if drawable {
+							f = funcs[drawable.t]
+							if f == nil { throw("render, no such drawable type "..drawable.t) }
+							f(drawable)							
+						}						
+					}					
+				}
+				if m {
+					pop(matStack)
+					m = getLast(matStack)
+					bd.setTransform(m[0],m[1],m[2],m[3],m[4],m[5])
+				}
+			}
+			circle = func o { bd.fillRect(o.x, o.y, o.width, o.height) }
+			rect = func o { bd.fillRect(o.x, o.y, o.width, o.height) }
+			path = func o {
+				bd.beginPath()
+				v = o.d       // svg path:d is a space-separated list in text
+				if type(v) != 'array' { throw('render path: expected array') } 
+				i = 0 ;  cmd = 'M' ; while cmd != nil {
+					next = v[i]
+					if type(next) == 'number' {
+//						if cmd == 'Q' { bd.quadraticCurveTo (next, v[i+1], v[i+2], v[i+3]) ; i = i + 4 }
+//						if cmd == 'C' { bd.bezierCurveTo    (next, v[i+1], v[i+2], v[i+3], v[i+4], v[i+5]) ; i = i + 6 }
+						if cmd == 'L' { bd.lineTo           (next, v[i+1]) ; i = i + 2 }
+						if cmd == 'M' { bd.moveTo           (next, v[i+1]) ; i = i + 2 }
+						else          { throw('render path: unexpected cmd:' .. cmd) }
+						
+					} else {
+						cmd = next
+						i = i + 1						
+					}
+				} 
+				bd.endPath()
+			}
+		}
+	//	bd.setContext(ctx)
+		bd.clear('#000')
+		if drawablesById.root == nil { throw("render, missing root") }
+		funcs.g(drawablesById.root)
+
+	}
+
+	{
+		render = render
+		update = func id, spec { drawablesById[id] = spec }
+		remove = func {}
+	}
+
+
+}
+
+drawableGlobalCounter = 0
+createUiCoordinateContext = func interface, parent, mainPixelBuffer {
+	pixelBuffers = [mainPixelBuffer]
+	inpM  = [1,0,0,1,0,0]
+	inpIm = [1,0,0,1,0,0]
+
+	pixM  = [1,0,0,1,0,0]
+	pixIm = [1,0,0,1,0,0]
+
+	pos       = interface.pos       or create([0, 0])	// in parent coord space
+	size      = interface.size      or create([1, 1])	// in parent coord space
+	handlePos = interface.handlePos or create([0, 0])	// in relation to size, (0.5, 0.5) means centered
+	rotation  = interface.rotation  or create( 0 )      // rotation around handle
+	cmin      = interface.cmin      or create([0, 0])
+	cmax      = interface.cmax      or create([1, 1])
+
+	inputFuzzMargin = 0.04
+	minCapHeight = 0.05
+	minXHeight = 0.03
+
+	// http://madtealab.com/?V=1&C=1&G=1&O=1&W=567&GW=513&GX=2.571378905895906&GY=0.5535542318525394&GS=0.5669967766370353&EH=163&a=2.103205503600642&aMi=-pi&aMa=pi&aA=1&aS=1.64&p=%5B22.4%2C25.2%2C53%2C59.2%2C0.21%2C0.44%2C%5D&Expr=%0ApR+%3D+aToXY%28div%28%5B%0A+0.5%2C+0.5%2C%0A+0.4%2C+26.8%2C%0A+11.9%2C+26.5%2C%0A+17.6%2C+18.3%2C%0A+11.5%2C+12%2C%0A+5.4%2C+12%2C%0A+16.4%2C+0.2%2C%0A%5D%2C28%29%29%0Adraw%3Dfunction%28%29+%7B%0A+plotSpace%28%29%3B%0A+stroke%280%2C255%2C0%29%3B%0A%0A+beginShape%28%29+%3B+for%28var+i+%3D+0%3B+i+%3C+pR.length%3B+i%2B%2B%29+%7B+vertex%28pR%5Bi%5D.x%2C+pR%5Bi%5D.y%29+%7D+endShape%28%29%0A+screenSpace%28%29%0A+var+pos+%3D+pC%280%29%0A+var+size+%3D+sub%28pC%281%29%2C+pos%29%0A+var+handle+%3D+pC%282%29%0A+translate%28pos%5B0%5D%2C+pos%5B1%5D%29%0A+rotate%28a%29%0A+scale%28size%5B0%5D%2C+size%5B1%5D%29%0A+translate%28-handle%5B0%5D%2C+-handle%5B1%5D%29%0A+beginShape%28%29+%3B+for%28var+i+%3D+0%3B+i+%3C+pR.length%3B+i%2B%2B%29+%7B+vertex%28pR%5Bi%5D.x%2C+pR%5Bi%5D.y%29+%7D+endShape%28%29%0A%0A%7D
+
+	updateLocalMatrix = func {
+		lPos = get(pos)
+		lSize = get(size)
+		lHandlePos = get(handlePos)
+		lRotation = get(rotation)
+		m = t2dTranslate(-lHandlePos[0], -lHandlePos[1])
+		m = combine2dTransforms(m, t2dScale(lSize[0], lSize[1]))
+		if lRotation != 0 { m = combine2dTransforms(m, t2dRotate(lRotation)) }
+		m = combine2dTransforms(m, t2dTranslate(lPos[0], lPos[1]))
+	}
+
+	hookMultiple(gHookContext, [pos, size, handlePos, rotation, cmin, cmax], 0, updateLocalMatrix)
+
+	setCoordinateSystem = func x0, y0, x1, y1, parentMatrix, contextW, contextH {
+
+	}
+
+	createDrawable = func options {
+		if type(options.collect) != 'func' { throw('collect function required') }
+		drawableGlobalCounter = drawableGlobalCounter + 1
+		id = drawableGlobalCounter // genRandomBase64urlString(8)
+		waitingToCollect = false
+		{
+			id = id
+			invalidate = func pos, radius {
+				if not waitingToCollect {
+					waitingToCollect = true
+					onNextAnimationFrame(func {
+						drawSpec = options.collect()
+						for _,buffer in pixelBuffers {
+							// tp = apply2dTransform(pixM, pos) 
+							// isDrawableOnBuffer = tp[0] < 
+							// if isDrawableOnBuffer or prevIsDrawableOnBuffer
+							buffer.update(id, drawSpec)
+						}
+						waitingToCollect = false
+					})					
+				}
+			}
+			remove = func {  }
+		}
+	}
+
+
+	{
+		createDrawable      = createDrawable
+		setCoordinateSystem = setCoordinateSystem
+		getInputFuzzMargin  = func { inputFuzzMargin }
+		getMinCapHeight     = func { minCapHeight }
+		getMinXHeight       = func { minXHeight }
+		pixelSnap           = func p { p = apply2dTransform (pixM, p) ; p[0] = floor(p[0]) ; p[1] = floor(p[1]) ; apply2dTransform (pixIm, p) }		
+		fromInput           = func s { apply2dTransform (inpIm, s) }
+		fromInputScalar     = func s { apply2dScale     (inpIm, s) }
+		toInput             = func s { apply2dTransform (inpM,  s) }
+		toInputScalar       = func s { apply2dScale     (inpM,  s) }
+	}
+
+}
+*/
+
+
+/*  button example:
+
+	// draw group helpers
+	dgCreate = func { { t = 'g', order = [] } }
+	dgDraw = func out, id, type, o { out[id] = o ; push(out.order, id) }
+
+
+	drawable.setCollectCallback(func {
+		o = dcCreate()
+		dgDraw(o, 'i0', 'image', {f : 'buttonbg.png:0:0:100:20', x : 0.2, w : 0.1, h:0.04 })
+		dgDraw(o, 'i1', 'image', {f : 'arrowleft.png:0:0:25:25', x : 0.22, y :0.05, w : 0.03, h:0.03 })
+		o
+	}
+
+	drawable.setCollectCallback(func out {
+		drawPrimitive(out, 'i0', 'image', {f : 'buttonbg.png:0:0:100:20', x : 0.2, w : 0.1, h:0.04 })
+		drawPrimitive(out, 'i1', 'image', {f : 'arrowleft.png:0:0:25:25', x : 0.22, y :0.05, w : 0.03, h:0.03 })
+	}
+
+	drawable.setCollectCallback(func {
+		{
+			t = 'g'
+//			order = ['i1', 'i2']
+			obj0 = {t : 'image', f : 'buttonbg.png:0:0:100:20', x : 0.2, w : 0.1, h:0.04 }
+			obj1 = {t : 'image', f : 'arrowleft.png:0:0:25:25', x : 0.22, y :0.05, w : 0.03, h:0.03 }
+		}
+	})
+
+*/
+//  using the reactive array seems very messy at this point! try separation
+//
+//	hookFixedArray2(arg.pos, func { posInputValid = false ; posPixelValid = false })
+//	posIS = [0,0]
+//	validateISCoord = func { posIS = coordCtx.toInput(reactiveExpressionToTable('arg.pos')) }
+/*
+createUiPoint = func coordCtx {
+	// add support for color, imageFragment, size ?
+
+	drawEnabled = true
+	ppos = [0,0]
+	posInputValid = false
+	drawable = nil
+	needRepaint = func { drawable.invalidate(ppos, coordCtx.getInputFuzzMargin()) }
+	out = { pos = func{}, drag = func{} }   
+	inp = { pos = func val { ppos = val ; posInputValid = false ;  if drawable { needRepaint() } } } 
+	posIS = [0,0]
+	validateISCoord = func { posIS = coordCtx.toInput (ppos) ; posInputValid = true } 
+	dragging = false
+	lastDragMyPosIS = nil
+	lastDragInputIS = nil
+												//	inputTest = func pos, action {
+												//	inputTestDndDrag {
+												//	inputTestHover {
+												//	inputTestWheel {
+	inputTest = func id, pos {
+		if not dragging {
+			if not posInputValid { validateISCoord() }
+			return inputHitTestPointToPoint(pos, posIS)
+		}
+	}
+
+	if drawEnabled {
+		drawable = coordCtx.createDrawable({
+			collect = func { 
+				{ t = 'circle', x = ppos[0], y = ppos[1], r = coordCtx.getInputFuzzMargin() }
+			}
+		})
+	}
+
+	inputDrag = func id, event, pos {
+		if not posInputValid { validateISCoord() }
+		if      event == 'start' { dragging = true  ; out.drag(true) }
+		else if event == 'stop'  { dragging = false ; out.drag(false)}
+		else {
+			diffDragIS = v2sub(pos, lastDragInputIS)
+			diffMyIS = v2sub(posIS, lastDragMyPosIS)
+			ppos = v2add(ppos, coordCtx.fromInputScalar(v2sub(diffDragIS, diffMyIS)))
+			validateISCoord()
+			if drawable { needRepaint() }
+			out.pos(ppos)
+		}
+		lastDragMyPosIS = posIS
+		lastDragInputIS = pos
+	}
+
+	{
+		set = inp
+		listen = out
+	}
+}
+
+createUiRect = func coordCtx {
+	mi = createUiPoint(coordCtx)
+	ma = createUiPoint(coordCtx)
+	miPos = nil
+	maPos = nil
+	mi.listen.pos = func p { miPos = p }
+	ma.listen.pos = func p { maPos = p }
+	inp = { min = mi.set.pos, max = ma.set.pos }
+
+
+	{
+		set = inp
+	}
+}
+
+
+createUiCanvas = func coordCtx {
+	
+}
+
+createDscriptVisualisation = func {
+	ttfobjects = {}
+	completeGraph = generateCodeConnectionGraph(globalMeta)
+
+	graph = {}
+	orderMain = completeGraph['main'].orderId
+	for id, node in completeGraph {
+		if node.orderId >= orderMain {
+			graph[id] = node
+			extend(graph, getCodeConnectionGraphDependencies(completeGraph, id))
+		}
+	}
+
+}
+
+*/
+
+
+/*
+
+rects
+	[23,23,98,76]
+	[13,13,128,96]
+	
+interactiveView
+	inputDrag = { i0 = { pos = [89,96] } }
+	inputHover = { mouse = { pos = [45, 263] } }
+*/
+//  uiLayoutH
+//    debugPanel
+//    mainApp
+
+
+	//	var scale = options.scale || 1
+	//	var	canvas = document.getElementById(options.id),
+	//		ctxt = canvas.getContext("2d");
+
+	//	canvas.width = Math.floor(window.innerWidth * scale)
+	//	canvas.height = Math.floor(window.innerHeight * scale)
+
+	//	ctxt.lineWidth = options.size || Math.ceil(Math.random() * 35);
+	//	ctxt.lineCap = options.lineCap || "round";
+	//	ctxt.pX = undefined;
+	//	ctxt.pY = undefined;
+
+	//	ctxt.fillStyle = '#333';
+	//	ctxt.fillRect(0,0,10000,10000);
+		
+		inputData = {}
+		pastInputData = {}
+		colorInc = 0
+		colors = ['#FFF', '#0FF', '#F0F', '#FF0', '#F00', '#0F0', '#00F']
+		
+		drawRequested = 0
+		draw = func id, pos, a3 {
+			bd.fillColor('#333');
+			bd.fillAlpha( 0.25);
+			bd.fillRect(0,0,guiContext.getPixelWidth(),guiContext.getPixelHeight());
+			radius = (guiContext.getPixelWidth() + guiContext.getPixelHeight()) / 30
+			bs = radius / 8
+			
+			for v in inputData {
+				if(v) {
+					bd.fillColor(v.color)
+					if(v.del) {
+						bd.fillRect(v.x-radius, v.y-radius, bs, radius*2);
+						bd.fillRect(v.x+radius-bs, v.y-radius, bs, radius*2);
+					} else if(v.first) {
+						bd.fillRect(v.x-radius, v.y-radius, radius*2, bs);
+						bd.fillRect(v.x-radius, v.y+radius-bs, radius*2, bs);							
+					} else {
+						bd.fillRect(v.x-radius, v.y-radius, radius*2, radius*2);
+					}
+				}
+			}		
+			drawRequested = 0
+		}
+
+global inputHandler = func id, pos, a3 {
+//			print('x '..pos.x..' y '..pos.y)
+			if a3 == true {
+				if inputData[id] != nil { throw('inputData['+id+'] != nil') } 
+				inputData[id] = {x:pos.x, y:pos.y, first:1, color:colors[colorInc % colors.length]}
+				colorInc = colorInc + 1
+			} else if a3 == false {
+				if(inputData[id] == nil) { throw('inputData['+id+'] == nil') } 
+				inputData[id].del = 1
+			} else {
+				if(inputData[id] == nil) { throw('inputData['+id+'] == nil  move') } 
+				inputData[id].x = pos.x
+				inputData[id].y = pos.y
+			}
+
+//			if(!drawRequested) {
+//				drawRequested = 1
+//				setTimeout(draw,0)
+//			}
+					draw()
+			
+			inputData[id].first = 0
+			if(inputData[id].del == 1) {
+				inputData[id] = nil	
+			}
+			
+	//		for k,v in inputData  {
+	//			if(v) {
+	//				print(k +' ('+ v.x +' '+ v.y+')  ')
+	//			}
+	//		}
+
+		}
+
+

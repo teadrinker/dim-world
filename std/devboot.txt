@@ -1,0 +1,108 @@
+
+
+successfullCount = 0
+failedCount = 0
+
+gDebugConsoleSize = 'small'
+
+global getStackInfo = func r {  // duplicated
+	msg = ''
+	if r.error and r.stackInfo {
+		for _, info in r.stackInfo {
+			msg = msg .. info.ttfId .. '  ' .. info.name .. '  ' .. info.line .. '\n'
+		}
+	}
+	msg
+}
+
+executeAndBuildCodeMetadata = func testName, codeAsText, expectedToBe {
+	a = nil
+	if type(codeAsText) == 'string' {
+		a = textToFunc(codeAsText, testName)
+	} else if type(codeAsText) == 'func' {
+		a = { func = codeAsText }
+		codeAsText = "(not available for funcs)"
+	} else {
+		gDebugConsoleSize = 'big'
+		print('executeAndBuildCodeMetadata() argument error, wrong type, use text or func')
+		return
+	}
+	dnativeText = a.dnative
+	if a.error {
+		gDebugConsoleSize = 'big'
+		print('executeAndBuildCodeMetadata error ttf: ' .. testName .. '\n  ' .. a.error .. '\n')	
+			print('\ndnative : ' .. (dnativeText or codeAsText) .. '\n\n')	
+		failedCount = failedCount + 1;
+		return nil
+	} else {
+		a = tryCall(a.func)
+		if a.error {
+			gDebugConsoleSize = 'big'
+			print('executeAndBuildCodeMetadata error exe: ' .. testName .. '\n  ' .. a.error .. '\n\n' .. getStackInfo(a) .. '\n\n' .. codeAsText .. '\n')	
+			failedCount = failedCount + 1
+			return nil
+		} else {
+//			debug(codeAsText .. "    // " .. testName)
+			a = a.ret
+		}
+	}
+}
+
+//global dev = { baseLib = [] }
+			
+if getGlobal('textToFunc') {	
+
+	filesToExecute = [
+						{ file = 'std/iolib.js' }
+						{ file = 'std/dsParserTests.txt' }
+						{ file = 'std/stdlib.txt' }
+						{ file = 'std/stdlibTests.txt' }
+						{ file = 'std/spine.txt' }
+						{ file = 'std/loadproject.txt' }
+					]
+
+	duringExecuteQueue = false
+	loadAndExecuteNext = nil
+	loadAndExecuteNext = func id {
+		duringExecuteQueue = true
+		if not (filesToExecute[id] and filesToExecute[id].file) { 
+			filesToExecute = []
+			duringExecuteQueue = false
+			return
+		}		
+		file = filesToExecute[id].file
+		ttfId = filesToExecute[id].id
+
+		http(file, nil, func err, str {
+			if err {
+				throw('loadAndExecuteNext() '..file..' :'..err)
+			}
+			codeSnippetArray = split(str, "#####")
+			for k,v in codeSnippetArray {
+				ttfIdForK = ttfId == nil and ('boot_'..file..'_'..k) or ( k == len(codeSnippetArray) - 1 and ttfId or (ttfId .. '_' .. k) )
+
+//				substring = getGlobal('substring')
+//				if substring and ttfIdForK == 'main' {
+//					print('exec '..ttfIdForK..' '..substring(v,0,100)..'\n\n')			
+//				}
+
+				executeAndBuildCodeMetadata(ttfIdForK, v, nil)
+
+//				if file == 'std/iolib.js' or file == 'std/stdlib.txt' {
+//					push(dev.baseLib, v)
+//				}
+			}
+			loadAndExecuteNext(id + 1)
+		})
+	}
+
+	global loadAndExecute = func relPath, ttfId {
+		push(filesToExecute, {file = relPath, id = ttfId})
+		if not duringExecuteQueue {
+			loadAndExecuteNext(0)
+		}
+	}
+
+	loadAndExecuteNext(0)
+
+}

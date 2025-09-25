@@ -1,0 +1,116 @@
+
+
+		
+if getGlobal('textToFunc') {  // run unit tests if possible
+
+	unitTest('concatissue1',     " substring('hej' .. getTime(), 1, 3)",	'ej') 
+	
+	unitTest('TestLibSerialize1',     'serialize( nil )',   	'nil') 
+	unitTest('TestLibSerialize2',     'serialize( [ 33 ] )',	'[33]') 
+	unitTest('TestLibSerialize3',     'serialize( {peace = 22, array = [\'t\', 55]} )',	'{array = ["t", 55], peace = 22}') 
+	unitTest('TestLibSerialize4',     'serialize( [] )',	'[]') 
+	unitTest('TestLibSerialize5',     'serialize( {d=6} )',	'{d = 6}') 
+	unitTest('TestLibSerialize6',     'serialize( {} )',	'{}') 
+	unitTest('TestLibSerialize7',     'serialize( {+sill,-lax} )',	'{lax = false, sill = true}') 
+
+	unitTestReport()
+
+}
+
+#####
+
+global stdlibTestBasicModelAndTextInput = func {
+	hc = gHookContext
+	modelTest = create(3)
+	print("modelTest initial:" .. get(modelTest))
+	h = hook(hc, modelTest, func { print('modelTest from hook:'..get(modelTest)) } )
+	set(modelTest,'sallad0 basic hook test')
+	flushLater() 
+	
+	set(modelTest,'sallad1 unhook after set, events should not be lost')
+	unhook(h) 
+	flushLater() // queued events will still be sent even after unhooking
+	
+	set(modelTest,'sallad2 THIS CHANGE SHOULD NOT BE REPORTED')
+	flushLater()
+	
+	h = hook(hc, modelTest, func { print('modelTest from hook:'..get(modelTest)) } )
+	set(modelTest,'sallad3 THIS CHANGE SHOULD NOT BE REPORTED')
+	set(modelTest,'sallad3 (should only be seen once)') // double set() test, should only send one notification
+	flushLater()
+	
+	
+	testsize = [330,50]
+	
+	txtb = nil
+	txta = createTextInput({text = 'salt', rect = [20,200,testsize[0],testsize[1]]},func w, txt{  })
+	txtb = createTextInput({rect = [20+testsize[0]+10,200,testsize[0],testsize[1]]},func a, b {
+		if a == 'text' and b == 'die' { txta.setRect(nil); txtb.setRect(nil) }
+		if a == 'rect' {txta.setRect([b[0]-testsize[0]-10,b[1],b[2],b[3]])}
+		txta.setText('notify: '..serialize([a,b]))
+	} )
+	
+	txtc = wrapSetToModel(hc, {text = 'in', rect = [20, 300, testsize[0], testsize[1]] }, createTextInput)
+	txtd = wrapSetToModel(hc, {rect = [20+testsize[0]+10, 300, testsize[0], testsize[1]] }, createTextInput)
+	delay(2, func { print('Hej!') ; set(txtc.text, 'testing time!') })
+
+	osc = 0
+	ih = onInterval(0.1, func{ osc = 1 - osc ; set(txtc.color, osc == 0 and "#6644FF" or "#FF9900" ) })
+	hook(hc, txtc.rect, func{ if ih { killTimer(ih) ; ih = nil } })
+	hook(hc, txtc.text, func{ set(txtd.text,get(txtc.text)) })
+//	hook(hc, txtc.selectionStart, func{ set(txtd.selectionStart,get(txtc.selectionStart)) })
+//	hook(hc, txtc.selectionEnd, func{ set(txtd.selectionEnd,get(txtc.selectionEnd)) })
+}
+
+
+
+#####
+
+global stdlibTestTreeApi = func {
+
+	tree = createTreeApi()
+	root = {id = 'root'}
+	a = {id = 'a'}
+	b = {id = 'b'}
+	c = {id = 'c'}
+	d = {id = 'd'}
+	e = {id = 'e'}
+	f = {id = 'f'}
+	g = {id = 'g'}
+
+	tree.insertFirst  (root, b)
+	tree.insertAfter  (b,    d)
+	tree.insertBefore (d,    c)
+	tree.insertLast   (root, e)
+	tree.insertFirst  (root, a)
+	tree.insertFirst  (e,    f)
+	tree.insertLast   (e,    g)
+
+	forw  = 'rootabcdefg'
+	backw = 'gfedcbaroot'
+
+	tmp = ''
+	tree.traverse (root, func v { tmp = tmp .. v.id ; nil })
+	assert(tmp,'==',forw)
+
+	tmp = ''
+	tree.traversePR(root, func v { tmp = tmp .. v.id ; nil })
+	assert(tmp,'==',backw)
+
+	tmp = ''
+	it = root
+	while it {
+		tmp = tmp .. it.id
+		it = tree.forward(it)
+	}
+	assert(tmp,'==',forw)
+
+	tmp = ''
+	it = tree.deepestLast(root)
+	while it {
+		tmp = tmp .. it.id
+		it = tree.backward(it)
+	}
+	assert(tmp,'==',backw)
+	nil
+}

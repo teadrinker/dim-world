@@ -1,0 +1,3362 @@
+
+
+#####
+
+	instantiateRec = nil   // the one who calls instantiateRec is responsible for calling remove on the returning structure
+
+	api uninitialized = {___class = "notReady"}
+	isReady = func x { x != nil and x.___class != "notReady" }   // isSimple
+//	isReady = func x { x != uninitialized }
+
+
+	recreateOnBChange = { +iterateB, +iterateAB, +arrayB, +arrayAB}
+	recreateOnAChange = { +iterateA, +iterateAB, +arrayA, +arrayAB}
+	configIsIterate = { +iterateA, +iterateB, +iterateAB}
+	configIsArray = { +arrayA, +arrayB, +arrayAB}
+
+	iterationSupportAdapter = nil
+	iterationSupportAdapter = func ns, out, a, b, inner {
+		ctx = createHookContext()
+		curConfig = nil
+		curObj = nil
+		prevA = nil
+		prevB = nil
+		
+		checkForIteration = func {
+			config = 'inner'
+			va = nil
+			vb = nil
+			//if curConfig == nil {
+				va = get(a)
+				vb = get(b)
+				ta = type(va)
+				tb = type(vb)
+				taSimple = ta == 'number' or ta == 'string' or ta == 'nil' // isSimple
+				tbSimple = tb == 'number' or tb == 'string' or ta == 'nil'
+				if not (taSimple and tbSimple) {
+
+					taTable = ta == 'table'
+					tbTable = tb == 'table'
+					if taTable and va == uninitialized or tbTable and vb == uninitialized {
+						config = 'waiting'
+					} else {
+						itA = taTable and va.___iteration
+						itB = tbTable and vb.___iteration
+						if itA or itB {
+							if itA and itB { config = 'iterateAB' }
+							else if itA    { config = 'iterateA' }
+							else           { config = 'iterateB' }			
+						} else {
+
+							// check for functors here?
+
+							arA = taTable and va.___class == 'reactiveArray'
+							arB = tbTable and vb.___class == 'reactiveArray'
+							if arA and arB { config = 'arrayAB' }
+							else if arA    { config = 'arrayA' }
+							else if arB    { config = 'arrayB' }
+							else {
+								print('unknown type combination '..ta..' '..tb)
+								print(toStr(va)..' '..toStr(vb))
+							//	assert(false)
+								config = 'waiting'
+							}
+						}
+					}
+				}
+			//}
+
+//			print('CONFIG '..config)
+			if curConfig != config or (recreateOnAChange[curConfig] and prevA != va) or
+									  (recreateOnBChange[curConfig] and prevB != vb) {
+				curConfig = config
+				remove(curObj) ; curObj = nil
+				if config == 'waiting' {
+					curObj = nil	
+					set(out, uninitialized)				
+				} else if config == 'inner' {
+					curObj = inner(ns, out, a, b)
+				} else {
+					iterationsById = {}
+					curObj = createComposite()
+
+					arrayA = nil
+					arrayB = nil
+					if      config == 'arrayA'     { arrayA = va }
+					else if config == 'arrayB'     { arrayA = vb }
+					else if config == 'arrayAB'    { arrayA = va ; arrayB = vb }
+					else if config == 'iterateA'   { arrayA = va.array }
+					else if config == 'iterateB'   { arrayA = vb.array }
+					else if config == 'iterateAB'  { arrayA = va.array ; arrayB = vb.array }
+
+					mapHandle = raMap(arrayA, func k, rv {
+						obj = nil
+						if        config == 'iterateA' or config == 'arrayA' {
+							obj = iterationSupportAdapter(ns, create(uninitialized), rv, b, inner) 				
+						} else if config == 'iterateB' or config == 'arrayB' {
+							obj = iterationSupportAdapter(ns, create(uninitialized), a, rv, inner) 				
+						} else {
+							raKeyHook = nil
+							obj = createComposite()
+							obj.rv = create(uninitialized)
+							obj.add( raHookKey(arrayB, k, func events {
+								for i,v in events {
+									if v[0] == 'inserted' {
+										raKeyHook = iterationSupportAdapter(ns, obj.rv, rv, v[2], inner) 	
+									} else if v[0] == 'removed'  {
+										remove(raKeyHook)
+									} else {
+										#{ js debugger #}
+										print('iterationSupportAdapter() Warning unknown event '..i..'  '..toStr(v))
+									}
+								}
+							}))	
+						}
+						iterationsById[k] = obj
+						return obj.rv
+					}, func k {
+						remove(iterationsById[k]) ; iterationsById[k] = nil
+					})
+					raMapped = mapHandle.raMapReturn
+					curObj.add(mapHandle)
+
+					if configIsIterate[config] {
+						itObj = nil
+						if config == 'iterateAB' {
+							print('iterateAB impl not done yet')
+							itObj = uninitialized
+						} else {
+							//itObj = copy(config == 'iterateA' and va or vb)
+							itObj = { ___iteration = true, }
+							itObj.array = raMapped
+						}
+						set(out, itObj)
+					} else {
+						set(out, raMapped)
+					}
+
+				}
+			}
+			prevA = va
+			prevB = vb	
+		}
+
+		hook(ctx, a, checkForIteration)
+		hook(ctx, b, checkForIteration, true)
+
+		return {
+			rv = out
+			remove = func { remove(ctx) ; remove(curObj) }
+		}
+	}
+
+	simpleAdapter = nil
+	simpleAdapter = func ns, out, a, b, inner {
+		ctx = createHookContext()
+		curObj = nil	
+
+		executeWhenReady = func {
+			va = get(a)
+			vb = get(b)
+			if type(va) == 'table' and va == uninitialized or 
+			   type(vb) == 'table' and vb == uninitialized {
+				curObj = nil	
+				set(out, uninitialized)				
+			} else {
+				curObj = inner(ns, out, a, b)	
+			}			
+		}
+
+		hook(ctx, a, executeWhenReady)
+		hook(ctx, b, executeWhenReady, true)
+
+		return {
+			rv = out
+			remove = func { remove(ctx) ; remove(curObj) }
+		}
+	}
+
+
+	createExecOperator = func isBinary, supportIteration, innerExec {
+		adapter = supportIteration ? iterationSupportAdapter : simpleAdapter
+		func ns, aCodeTree, bCodeTree {
+			out = create(uninitialized)
+			bObj = instantiateRec(ns, bCodeTree)
+			aObj = nil
+			if isBinary {
+				assert(aCodeTree != nil)
+				aObj = instantiateRec(ns, aCodeTree)
+			} else {
+				assert(aCodeTree, '==', nil)
+				aObj = { rv = create(0), remove = func {} } // unary minus hack: fix
+				aObj.rv.readOnly = true
+			}
+			out.__debugCodeTrees = [aCodeTree,bCodeTree]
+			aObj.rv.__debugCodeTree = aCodeTree
+			bObj.rv.__debugCodeTree = bCodeTree
+			opObj = adapter(ns, out, aObj.rv, bObj.rv, innerExec)
+			
+			return {
+				rv = out
+				remove = func { remove(opObj) ; remove(aObj) ; remove(bObj) }
+			}		
+		}
+	}
+
+	hookResolveRArray = func ctx, rvOut, raObj, key {
+		handle = nil
+		handleRev = nil
+		raHookKey(raObj, key, func events {
+		//	print('hookResolveRArray raHookKey '..key..' '..toStr(events))
+			for i,v in events {
+				if v[0] == 'inserted' {
+					rv = raGet(raObj, key)
+					if rv and rv.___class == 'reactiveValue' {
+						handle = hook(ctx, rv, func {
+							trace(spine, "hookResolveRArray     "..toStr(get(rvOut))..' -> '..toStr(get(rv)))
+							set(rvOut, get(rv))
+						}, true)
+						handleRev = hook(ctx, rvOut, func {
+							tmp1 = get(rv) ; tmp2 = get(rvOut)
+							if tmp1 != tmp2 {
+								trace(spine, "hookResolveRArray REV "..toStr(tmp1)..' -> '..toStr(tmp2))
+								set(rv, tmp2)							
+							}
+						})
+					} else {
+						print('hookResolveRArray Warning expected reactive value '..toStr(rv))
+					}
+				} else if v[0] == 'removed'  {
+					unhook(handleRev) if handleRev
+					unhook(handle) if handle
+ 					set(rvOut, nil)   // this messes up things with inversed operators ?
+				} else {
+					#{ js debugger #}
+					print('hookResolveRArray() Warning unknown event '..i..'  '..toStr(v))
+				}
+			}
+		})
+	}
+
+    // out = a + b
+    // b = out - a
+    // a = out - b
+
+    // 110 = 100 + 10
+    // 11  = 111 - 100
+    // 101 = 111 - 100
+
+    // out = a - b
+    // a = out + b
+    // b = b - out // flip operands
+
+    // 90  = 100 - 10
+    // 101 = 91  + 10
+
+
+    checkInverseTolerance = func a, b { // a == current value, b == inverted
+
+	   	if abs(a-b) > 0.00001 { return true }
+
+    	if a != 0 {
+			tmp = abs(b/a)
+			if tmp > 1.00001 or tmp < 0.99999 { return true }		
+		} 
+
+    }
+
+	hookOperator = func ns, out, a, b, opFunc, opInvA, opInvB, flipOperands, debugToken {
+		ctx = createHookContext()
+		updateOperator = nil
+		updateOperator = func {
+			va = get(a)
+			vb = get(b)
+			if isReady(va) and isReady(vb) {
+				if  type(va) == 'number' and not isFiniteNumber(va) or 
+					type(vb) == 'number' and not isFiniteNumber(vb) {
+					print('updateOperator value check: '..toStr(va)..' '..(debugToken or '?')..' '..toStr(vb) )
+				} else {
+					v = opFunc(va, vb)
+					// print('updateOperator '..toStr(va)..' '..(debugToken or '?')..' '..toStr(vb)..' = '..toStr(v) )
+					set(out, v, ctx)
+				}
+			}
+			else {
+				set(out, uninitialized, ctx)
+			}
+		}
+		hook(ctx, a, updateOperator)
+		hook(ctx, b, updateOperator, true)
+
+		if opInvB { assert(opInvA)
+			invAorBSelection = not a.readOnly and a or not b.readonly and b
+			if invAorBSelection { 
+				invA    = out
+				invB    = invAorBSelection == b and a or b
+				invFunc = invAorBSelection == b and opInvB or opInvA
+				if flipOperands and invAorBSelection == b { tmp = invA ; invA = invB ; invB = invA }
+				updateInvOperator = func {
+					if out.lastWriter == ctx {
+						return
+					}
+					va = get(invA)
+					vb = get(invB)
+					if isFiniteNumber(va) and isFiniteNumber(vb) {
+						v = invFunc(va, vb)
+
+						if abs(v) > 99999999999 { // infinity check + avoid huge numbers    this handles blocking 0*0 etc
+
+							updateOperator() // revert the change
+
+					//	} else if isFiniteNumber(v) and checkInverseTolerance(get(invAorBSelection), v) { // this can sometimes stop infinite cascades?
+						} else if isFiniteNumber(v) {
+
+							// print('inverse op ' .. get(invAorBSelection) ..' -> ' .. v .. '   forward '.. get(a) .. ' ' .. get(b) .. ' ' .. opFunc(get(a),get(b)) )
+							set(invAorBSelection, v)
+
+						} else {
+							
+							// revert the change? or skip it?
+							updateOperator() 
+							
+						}
+					}
+				}
+				hook(ctx, out, updateInvOperator)
+			}
+		}
+
+		{
+			rv = out
+			remove = func { remove(ctx)  }
+		}
+	}
+	
+
+/*	
+	api classInfo = {}
+	classInfo['reactiveTable'] = {
+	}
+	classInfo['nodeRef'] = {
+		opIndex = func obj, index {
+	//		node = stapi.getNode(obj.nodeId)
+	//		if node {
+	//			
+	//		}
+	//		tryAgainMS
+		}
+	}
+
+	reactiveEndPoint = func ns, out, a, b, simpleOp {
+	}
+*/
+
+
+
+	opTypeSupport = func simpleOp {     // just make sure we only run simpleOp for strings / numbers (maybe add more type support later, Float32Array etc)
+		wrapped = nil
+		wrapped = func a, b{
+//			print('wrapped '..toStr(a)..' '..toStr(b))
+			ta = type(a)
+			tb = type(b)
+			taSimple = ta == 'string' or ta == 'number' or ta == 'nil' // isSimple
+			tbSimple = tb == 'string' or tb == 'number' or ta == 'nil'
+			if taSimple and tbSimple { return simpleOp(a, b) }
+
+/* skip dscript container types for now
+			taNumber = ta == 'number'
+			tbNumber = tb == 'number'
+			if taNumber and tbNumber { return simpleOp(a, b) }
+			tbArrayOrTable = tb == 'array' or tb == 'table' ;
+			if taNumber and tbArrayOrTable { return map(b, func x { wrapped(a, x) }) }
+			taArrayOrTable = ta == 'array' or ta == 'table' ;
+			if tbNumber and taArrayOrTable { return map(a, func x { wrapped(b, x) }) }
+			if taArrayOrTable and tbArrayOrTable {
+				o = newOf(a)
+				for k,v in a {
+					o[k] = b[k] != nil and wrapped(v, b[k]) or v
+				}
+			}
+*/			
+			nil
+		}
+		wrapped
+	}
+
+	opAdd     = opTypeSupport(func a, b { a + b })
+	opSub     = opTypeSupport(func a, b { a - b })
+	opMul     = opTypeSupport(func a, b { a * b })
+	opDiv     = opTypeSupport(func a, b { a / b })
+	opPow     = opTypeSupport(func a, b { pow(a, b) })
+	opPowInvA = opTypeSupport(func a, b { pow(a, 1/b) })
+	opPowInvB = opTypeSupport(func a, b { log(a) / log(b) })
+	opMod     = opTypeSupport(func a, b { a % b })                   // js mod "remainder"
+	opMod2    = opTypeSupport(func a, b { (a/b - floor(a/b)) * b })  // mathematical mod / floored division (always positive)
+	nothing   = func { }
+
+
+functorOperator = nil
+functorOperator = func ns, aCodeTree, bCodeTree {
+	trace(spine, 'functorOperator')
+	ctx = createHookContext()
+	out = create(uninitialized)
+	aObj = instantiateRec(ns, aCodeTree)
+	bObj = nil
+	instance = nil
+	stringHook = nil
+
+	functorRightUpdateString = func {
+	}
+
+	mainFunctorUpdate = func aObj, bObj {
+		trace(spine, 'mainFunctorUpdate')
+		comp = createComposite()
+
+		va = get(aObj.rv)
+
+		if not (type(va) == 'table' and (va.___functor or va.___iteration)) {
+			print('unexpected types  in mainFunctorUpdate')
+			return comp
+		}
+
+		vb = get(bObj.rv)
+		itA = va.___iteration
+		itB = vb.___iteration
+		if itA or itB {
+			if itA {
+				mapHandle = raMap(va.array, func k, rv {
+					comp.add(va.___functor(ns, bObj.rv, out))   
+				})			
+			} else {
+
+			}
+			//mapHandle.raMapReturn
+
+		} else {
+			comp.add(va.___functor(ns, bObj.rv, out))  // instance creation		
+		}
+
+		comp
+	}
+
+	functorLeftUpdate = func {
+		remove(instance) ; instance = nil
+		va = get(aObj.rv)
+		if va != uninitialized {
+			tva = type(va)
+			if tva == 'table' {
+				if stringHook { unhook(stringHook) ; stringHook = nil }
+				if va.___functor or va.___iteration {
+					if bObj == nil { bObj = instantiateRec(ns, bCodeTree) }
+					instance = mainFunctorUpdate(aObj, bObj)
+//					
+//					... = hook(ctx, bObj.rv, func {
+//						remove(instance) ; instance = nil
+//						vb = get(bObj.rv)
+//						if vb.___iteration or va.___iteration {
+//							instance = createComposite()
+//							raMap(vb.___iteration or va.___iteration, func k, rv {
+//								instance.add(va.___functor(ns, bObj.rv, out))   // instance creation	
+//							})
+//
+//						} else {
+//							instance = va.___functor(ns, bObj.rv, out)   // instance creation		
+//						}
+//					}, true)
+
+				} else if va.___class == 'reactiveArray' { // index array
+					if bObj == nil { bObj = instantiateRec(ns, bCodeTree) }
+					rvIndex = create()
+					assert(bObj.rv, '!=', nil)
+					args = get(bObj.rv)
+					assert(args, '!=', nil)
+					if args == uninitialized {
+						set(out, uninitialized)				
+					}
+					else {
+						assert(args.___class, '==', 'reactiveArray')
+						argsHandle = hookResolveRArray(ctx, rvIndex, args, 0)
+						resHandle = nil
+						indexHookHandle = hook(ctx, rvIndex, func {
+							remove(resHandle)
+							indexVal = get(rvIndex)
+							trace(spine, 'indexHookHandle indexVal = '..toStr(indexVal))
+							resHandle = hookResolveRArray(ctx, out, va, indexVal)
+						}, true)
+						instance = {
+							remove = func {
+								remove(resHandle)
+								unhook(indexHookHandle)
+								remove(argsHandle)
+								set(out, uninitialized)
+							}
+						}						
+					}
+
+				} else if va.___sysFunctor {  // such as def and for etc
+					remove(bObj) ; bObj = nil
+
+					instance = va.___sysFunctor(ns, bObj.rv, out)
+
+//				} else if va.___iteration   						// iteration for left can be implemented as functor?
+
+				} else {
+					throw('functorOperator used with non functor (table): '..toStr(va))
+				}
+			} else if tva == 'string' { // slice strings?
+				throw('not yet!')
+//				if stringHook == nil {
+//					if bObj == nil { bObj = instantiateRec(ns, bCodeTree) }
+//					stringHook = hook(ctx, aObj.rv, functorLeftUpdate, true)
+//				}
+//				set(out, substring(obj, index, index + 1)
+
+//			} else if tva == 'array'  { ...                    // support dscript arrays?
+
+//			} else if tva == 'number' { bit(obj + 0.5, index)  // accessing the bits of a number using [] is prob more confusion than feature
+
+			} else {
+				if bCodeTree.items != nil and len(bCodeTree.items) == 1 and 
+				   bCodeTree.items[0].left == nil and 
+				   bCodeTree.items[0].right == nil and 
+				   bCodeTree.items[0].token != nil
+				{
+					// cases such as "a&"
+					print('functorOperator used with non functor token - a:'..serialize(va)..' b:'..bCodeTree.items[0].token)
+				}
+				else
+				{
+					print('functorOperator used with non functor: '..serialize(va)..' a:'..toStr(aCodeTree)..' b:'..toStr(bCodeTree))
+				}
+				// throw('functorOperator used with non functor: '..serialize(va))
+			}
+
+		} 
+	}
+
+	hook(ctx, aObj.rv, functorLeftUpdate, true)
+
+	{
+		rv = out
+		remove = func { remove(ctx) ; remove(aObj) ; remove(bObj) ; remove(instance) }
+	}
+}
+
+ 
+api spineBlock_nameSpaceWriteObj = func {}
+
+assignmentOperator = func ns, aCodeTree, bCodeTree {
+	trace(spine, 'assignmentOperator!!!')
+	out = create(uninitialized) // assignment don't return anything, for now
+	token = aCodeTree.tokenAsData or aCodeTree.token
+	if token == nil {
+		throw('assignmentOperator() expected single namespace token '..toStr(aCodeTree))
+	}
+	bObj = instantiateRec(ns, bCodeTree)
+	nsObj = spineBlock_nameSpaceWriteObj(ns, token, bObj.rv)
+	return {
+		rv = out
+		remove = func {
+			remove(nsObj)
+			remove(bObj)
+		}
+	}		
+	
+}
+
+writeOperator = func ns, out, a, b {
+
+	ctx = createHookContext()
+
+	hook(ctx, b, func { set(a,get(b)) }, true)	
+
+	removeWriteOperator = func {
+		remove(ctx)
+	}
+
+	return {
+		remove = removeWriteOperator
+	}
+}
+
+// spread / range operator 
+
+createRangeOpCreator = func isInclusive {
+	createRangeOp = func ns, out, a, b {
+		raReturn = raCreate()
+		set(out, raReturn)		
+
+		ctx = createHookContext()
+
+		curRange = []
+		curRangeHooks = []
+		waitForUpdateRange = false;
+		updateRange = func {
+			later( func{
+				// print('updateRange ')
+				waitForUpdateRange = false
+				newRange = []
+				aval = get(a)
+				bval = get(b)
+				ta = type(aval)
+				tb = type(bval)
+				if ta == 'number' and tb == 'number' {
+					cur = aval 
+					reverse = aval > bval
+					if isInclusive {
+						if reverse { while cur >= bval { push(newRange, cur) ; cur = cur - 1 } }
+						else       { while cur <= bval { push(newRange, cur) ; cur = cur + 1 } }
+					} else {
+						if reverse { while cur >  bval { push(newRange, cur) ; cur = cur - 1 } }
+						else       { while cur <  bval { push(newRange, cur) ; cur = cur + 1 } }					
+					}
+				}
+
+				/*		
+				// replace all
+				while raLen(raReturn) != 0 {
+					raPop(raReturn)
+				}
+				for i * len(newRange) {
+					raPush(raReturn, create(newRange[i]))
+				}
+				*/
+
+				// re-use
+				newLen = len(newRange)
+				while raLen(raReturn) > newLen {
+					removeId = raLen(raReturn) - 1
+					assert(curRangeHooks[removeId], '!=', 'nil')
+					unhook(curRangeHooks[removeId])
+					raRemove(raReturn, removeId)
+					// raPop(raReturn)
+				}	
+				i = 0
+				curLen = raLen(raReturn)
+				while i < curLen {
+					rv = raGet(raReturn, i)
+					assert(rv != nil)
+					curRange[i] = newRange[i]
+					set(rv, curRange[i])
+					i = i + 1
+				}	
+				while i < newLen {
+					tmp = func {
+						curRange[i] = newRange[i]
+						rvNew = create(curRange[i])
+						ii = i // js closure issue!
+						curRangeHooks[ii] = hook(ctx, rvNew, func { 
+
+							if waitForUpdateRange { return } // only support single source bidirectional action
+
+							// print(' '..ii..' '..isFiniteNumber(get(rvNew)) ..' '.. isFiniteNumber(curRange[ii]))	
+							if isFiniteNumber(get(rvNew)) and isFiniteNumber(curRange[ii])
+							{
+								diff = get(rvNew) - curRange[ii]
+								if diff != 0 {
+									waitForUpdateRange = true
+									// print('i='.. ii..'   diff=' ..diff .. '   get(rvNew)=' ..get(rvNew).. ' curRange[]=' .. curRange[0] .. ' ' ..curRange[1] .. ' ' ..curRange[2] .. ' ' ..curRange[3])	
+									set(a, get(a) + diff) 
+									set(b, get(b) + diff) 
+								}				
+							}
+						})
+						raPush(raReturn, rvNew)
+					}
+					tmp()
+					i = i + 1
+				}
+			})
+		}
+
+		hook(ctx, a, updateRange)
+		hook(ctx, b, updateRange, true)
+
+		removeRangeOp = func {
+			remove(ctx)
+			// note, we should leave reactive array untouched, we don't want deleted objects to trigger stuff
+		}
+
+		return {
+			remove = removeRangeOp
+		}
+	}
+	return createRangeOp
+}
+
+dotOperator = func ns, aCodeTree, bCodeTree {
+	trace(spine, 'assignmentOperator!!!')
+	out = create(uninitialized)
+	token = bCodeTree.token
+	if token == nil {
+		token = bCodeTree.number  // support syntax "myArray.0"
+		if token == nil {
+			throw('dotOperator() expected single namespace token '..toStr(bCodeTree))
+		} else {
+			token = toString(token)
+		}
+	}
+	aObj = instantiateRec(ns, aCodeTree)
+	ctx = createHookContext()
+	resolveHandle = nil
+	assert(aObj.rv, '!=', nil)
+	assert(aObj.rv.___class, '==', 'reactiveValue')
+	leftHandle = hook(ctx, aObj.rv, func {
+		remove(resolveHandle)
+		leftVal = get(aObj.rv)
+		if type(leftVal) == 'table' and leftVal.___class == 'reactiveArray' {
+			trace(spine, 'dotOperator, do hookResolveRArray')
+			resolveHandle = hookResolveRArray(ctx, out, leftVal, token)
+		} else {
+			trace(spine, 'dotOperator, waiting for correct type '..toStr(leftVal))
+			set(out, uninitialized)
+			resolveHandle = nil
+		}
+	},true)
+
+	{
+		rv = out
+		remove = func {
+			remove(aObj)
+			remove(resolveHandle)
+			unhook(leftHandle)
+			remove(ctx)
+		}
+	}		
+	
+}
+
+
+binaryOps = {
+	''		 = { callback = functorOperator } 	
+	'apply'  = { callback = functorOperator } 	
+	'..'     = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opTypeSupport(func a, b { type(a) == 'string' ? a .. b : uninitialized})) }) }
+	'and'    = { callback = createExecOperator(true, false,func ns, out, a, b { hookOperator(ns, out, a, b,              (func a, b { a != 0 and b != 0 ? 1 : 0 })) }) }
+	'or'     = { callback = createExecOperator(true, false,func ns, out, a, b { hookOperator(ns, out, a, b,              (func a, b { a != 0 or  b != 0 ? 1 : 0 })) }) }
+	'>'      = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opTypeSupport(func a, b { a >   b ? 1 : 0 })) }) }
+	'<'      = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opTypeSupport(func a, b { a <   b ? 1 : 0 })) }) }
+	'>='     = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opTypeSupport(func a, b { a >=  b ? 1 : 0 })) }) }
+	'<='     = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opTypeSupport(func a, b { a <=  b ? 1 : 0 })) }) }
+	'=='     = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opTypeSupport(func a, b { a ==  b ? 1 : 0 })) }) }
+	'!='     = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opTypeSupport(func a, b { a !=  b ? 1 : 0 })) }) }
+	'%'      = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opMod , opMod , nothing, nil, '%')      }) }
+	'%%'     = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opMod2, opMod2, nothing, nil, '%%')      }) }
+	'+'      = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opAdd, opSub, opSub, nil , '+')      }) }
+	'++'     = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opAdd, opSub, opSub, nil , '+')      }) }
+	'-'      = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opSub, opAdd, opSub, true, '-')      }) }
+	'--'     = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opSub, opAdd, opSub, true, '-')      }) }
+	'*'      = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opMul, opDiv, opDiv, nil , '*')      }) }
+	'**'     = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opMul, opDiv, opDiv, nil , '*')      }) }
+	'/'      = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opDiv, opMul, opDiv, true, '/')      }) }
+	'^'      = { callback = createExecOperator(true, true, func ns, out, a, b { hookOperator(ns, out, a, b, opPow, opPowInvA, opPowInvB, nil,'^')}) }	
+	'='      = { callback = assignmentOperator }	
+	'.'      = { callback = dotOperator }	
+	'...'    = { callback = createExecOperator(true, true, createRangeOpCreator()) }	
+	'....'   = { callback = createExecOperator(true, true, createRangeOpCreator(true)) }	
+
+	'<-'     = { callback = createExecOperator(true, true, writeOperator) }
+}
+
+
+unaryOps = {
+//	'not'    = { callback = func a { print('not - no impl') ; return { remove = func {} } } }
+	'-'      = { callback = createExecOperator(false, true, func ns, out, a, b { hookOperator(ns, out, a, b, opSub, opAdd, opSub, true, '-')      })  }	
+}
+
+
+tree = createTreeApi()
+
+block_getNameSpaceLink = func B, token {
+	if B.nameSpaceRead and B.nameSpaceRead[token] != nil and B.nameSpaceRead[token].source != nil {
+		trace(spine, 'block_getNameSpaceLink read found '..token)
+		return B.nameSpaceRead[token].source
+	}
+	if B.nameSpaceWrite and B.nameSpaceWrite[token] != nil {
+		trace(spine, 'block_getNameSpaceLink write found '..token)
+		return B.nameSpaceWrite[token]
+	}
+	return nil
+}
+
+nameSpaceFind = func ns, token {
+	trace(spine, 'nameSpaceFind '..token)
+	ret = nil
+	it = ns
+	while it {
+		trace(spine, 'nameSpaceFind '..token..' '..it.codeTree.lineId..' '..toStr(getKeys(it.nameSpaceRead), 30)..'  '..toStr(getKeys(it.nameSpaceWrite), 30))
+		ret = block_getNameSpaceLink(it, token)
+		if ret { break }
+		it = tree.backward(it)
+	}
+	if ret {
+		// make sure the ret is within scope
+
+		if ret.firstIntroduction == nil {
+			print('missing firstIntroduction ref '..toStr(ret))
+		} else if ret.firstIntroduction[0] == nil {
+			print('missing firstIntroduction '..toStr(ret))
+		} else if it == nil {
+			print('nameSpaceFind() it nil '..toStr(ret))
+		} else {
+			parentScopeNs = ret.useSubTreeScope ? ret.firstIntroduction[0] : tree.parent(ret.firstIntroduction[0])
+			if parentScopeNs == nil {
+				trace(spine, '   found global')
+				return ret
+			}
+			it = tree.parent(ns)
+			while it {
+				if parentScopeNs == it {
+	                trace(spine, '   found')
+					return ret
+				}
+				it = tree.parent(it)
+			}		
+		}
+	}
+    trace(spine, '   not found')
+}
+
+hookNameSpaceItem = func item, sourceRv {
+	if item.handle  { unhook(item.handle ) }
+	if item.handle2 { unhook(item.handle2) }
+
+	if sourceRv {
+		item.handle = hook(item.hookCtx, sourceRv, func {	
+			trace(spine, 'nameSpaceListener     '..toStr(get(item.dest),40)..' = '..toStr(get(sourceRv),40))
+			set(item.dest, get(sourceRv))
+		}, true)
+
+		item.handle2 = hook(item.hookCtx, item.dest, func {	
+			srcV = get(sourceRv)
+			dstV = get(item.dest)
+			if srcV != dstV {
+				trace(spine, 'nameSpaceListener REV '..toStr(srcV,40)..' = '..toStr(dstV,40))
+				set(sourceRv, get(item.dest))			
+			}
+		})						
+	} else {
+		set(item.dest, uninitialized)	
+		item.handle = nil
+		item.handle2 = nil
+	}
+}
+
+rehookReadTokenBinding = func ns, token, sourceRv {
+	trace(spine, "rehookReadTokenBinding "..token)
+	ns.nameSpaceRead[token].source = sourceRv
+	llForEach(ns.nameSpaceRead[token].destinations, func item {
+		hookNameSpaceItem(item, sourceRv)
+	},'prev','next')
+}
+
+api spineBlock_hookToNameSpace = func hookCtx, ns, token, rv {
+	item = nil
+	hookHandle = nil
+	sourceRv = nil
+	ns.nameSpaceRead = ns.nameSpaceRead or {}			
+	if ns.nameSpaceRead[token] == nil {
+		sourceRv = nameSpaceFind(ns, token)
+		ns.nameSpaceRead[token] = { source = sourceRv, destinations = llCreate('prev','next') } 
+	} else {
+		sourceRv = ns.nameSpaceRead[token].source
+	}
+
+	item = {
+		hookCtx = hookCtx
+		dest = rv
+		remove = func {
+			if item.handle { unhook(item.handle) }
+			if item.handle2 { unhook(item.handle2) }
+			llUnlink(item, 'prev', 'next')
+			if llEmpty(ns.nameSpaceRead[token].destinations, 'next') {
+				ns.nameSpaceRead[token] = nil
+			}
+		}
+	}
+	llInsert(ns.nameSpaceRead[token].destinations, item, 'prev', 'next')
+	hookNameSpaceItem(item, sourceRv)	
+	item
+}
+
+spineBlock_nameSpaceWrite = func ns, token, rv, useSubTreeScope {
+
+	firstIntroduction = nil
+	stopAt = nil
+
+	if useSubTreeScope {
+		stopAt = tree.nextOrAfterNext(ns)
+	} else {
+		prevRv = nameSpaceFind(ns, token)
+		if prevRv {
+			firstIntroduction = prevRv.firstIntroduction
+			assert(firstIntroduction)
+		}
+		definedAt = (firstIntroduction and firstIntroduction[0]) or ns
+		if rv == nil and definedAt == ns {
+			firstIntroduction = nil
+		}
+		tmp    =         tree.parent(definedAt)
+		stopAt = tmp and tree.nextOrAfterNext(tmp)
+	}
+
+
+	introducedHere = firstIntroduction == nil
+	if introducedHere {
+		trace(spine, 'spineBlock_nameSpaceWrite introduced here: '..token..' '..toStr(rv))
+
+		// iterate forward to see if it is already defined ahead
+		it = ns
+		while it {
+			trace(spine, 'spineBlock_nameSpaceWrite look forward '..token..' ... '..it.codeTree.lineId..' '..toStr(getKeys(it.nameSpaceRead), 30)..'  '..toStr(getKeys(it.nameSpaceWrite), 30))
+			if it.nameSpaceWrite and it.nameSpaceWrite[token] != nil {
+				// found definition ahead
+				nextWriteRv = it.nameSpaceWrite[token]
+				firstIntroduction = nextWriteRv.firstIntroduction
+				assert(firstIntroduction)
+				firstIntroduction[0] = ns // replace firstIntroduction (the array is used as a shared reference) 
+			}
+			it = tree.forward(it, stopAt)
+		}
+
+
+		if firstIntroduction == nil {
+			firstIntroduction = [ns]
+		}
+	}
+	rv.firstIntroduction = firstIntroduction if rv
+
+	ns.nameSpaceWrite = ns.nameSpaceWrite or {}
+	ns.nameSpaceWrite[token] = rv
+	rv.useSubTreeScope = useSubTreeScope if rv
+
+
+	it = tree.forward(ns, stopAt)
+	while it {
+		trace(spine, 'spineBlock_nameSpaceWrite sendevents '..token..' ... '..it.codeTree.lineId..' '..toStr(getKeys(it.nameSpaceRead), 30)..'  '..toStr(getKeys(it.nameSpaceWrite), 30))
+		if it.nameSpaceRead and it.nameSpaceRead[token] != nil {
+			rehookReadTokenBinding(it, token, rv)
+		}
+		if it.nameSpaceWrite and it.nameSpaceWrite[token] != nil {
+			if introducedHere { // we are introducing this token at a level closer to root than old definition
+				nextWriteNs = it
+
+				// look for name space reads that has source == nil for this depth 	
+				it = useSubTreeScope ? ns : tree.parent(ns)
+				it = tree.deepestLast(it)
+				foundNilReads = []
+				foundSource = nil
+				while it and it != nextWriteNs {
+					if it.nameSpaceRead and it.nameSpaceRead[token] {
+						if it.nameSpaceRead[token].source == nil {
+							push(foundNilReads, it)
+						} else {
+							foundSource = it.nameSpaceRead[token].source
+						}
+					}
+					if it.nameSpaceWrite and it.nameSpaceWrite[token] {
+						foundSource = it.nameSpaceWrite[token]
+					}
+					it = tree.backward(it)
+				}
+				for i * len(foundNilReads) {
+					rehookReadTokenBinding(foundNilReads[i], token, foundSource or rv)
+				}
+			}
+			return
+		}
+		it = tree.forward(it, stopAt)
+	}
+
+
+}
+
+api spineBlock_nameSpaceWriteObj = func ns, token, rv, useSubTreeScope {
+	spineBlock_nameSpaceWrite(ns, token, rv, useSubTreeScope)
+	return { 
+		remove = func {
+			if ns.__debug_REMOVECALLEDCOMPLETE {
+				print('WARNING remove(spineBlock_nameSpaceWriteObj) after block removed, token : '..token) // is it ok to later() during removal?
+				return
+			}
+			if rv.firstIntroduction and rv.firstIntroduction[0] == ns {
+				spineBlock_nameSpaceWrite(ns, token, nil, useSubTreeScope)
+			} else {
+				it = tree.backward(ns)
+				prevRv = nameSpaceFind(it, token)	
+
+				// assert(prevRv, '!=', nil)   // this happens with for nested loops
+				if prevRv == nil {
+					spineBlock_nameSpaceWrite(ns, token, nil, useSubTreeScope) // not sure if this is right
+					return
+				}
+
+				tmp    =         tree.parent(ns)
+				stopAt = tmp and tree.nextOrAfterNext(tmp)
+				it = ns				
+				it.nameSpaceWrite[token] = nil
+				while it {
+					trace(spine, 'spineBlock_nameSpaceWriteObj removed, rehook '..token..' ... '..it.codeTree.lineId..' '..toStr(getKeys(it.nameSpaceRead), 30)..'  '..toStr(getKeys(it.nameSpaceWrite), 30))
+					if it.nameSpaceRead and it.nameSpaceRead[token] != nil {
+						rehookReadTokenBinding(it, token, prevRv)
+					}				
+					if it.nameSpaceWrite and it.nameSpaceWrite[token] != nil {
+						break
+					}
+					it = tree.forward(it, stopAt)
+				}
+			}
+		}
+	}
+}
+
+instantiateRec = nil
+
+instantiateItems = func ns, t, items {
+	assert(t.itemsId, '!=', nil)
+	ret = createComposite()
+	newNs = ns //createNamespaceNode(ns)
+	newRa = raCreate()
+//	connectNamespaceToArray(newNs, newRa)
+	for i,item in items {
+		tok = item.token
+		rObj = nil
+
+//	        if tok == 'return' {
+//	          return instantiateRec(newNs, item.right)  support return?  no, can be supported as component.
+
+		if tok == '=' {
+			key = nil
+//					if item.left.isSymbol {
+				key = item.left.tokenAsData or item.left.token
+//					} else {
+//						throw('todo non symbol '..toStr(item))
+//						//key = instantiateRec(newNs, item.left)
+//					}
+			rObj = instantiateRec(newNs, item.right)
+			raInsert(newRa, key, rObj.rv)
+		} else {
+			rObj = instantiateRec(newNs, item)
+			raPush(newRa, rObj.rv)
+		}
+		ret.add(rObj)
+	}
+	ret.rv = create(newRa)
+
+	// hook for code reversal of structural change:
+	// For example, when a component instance is adding an argument to its callers argument
+	// list, the code where the call was made should be updated to reflect the new data
+	ret.add(raHook(newRa, func {
+		later(func{
+			//print('arg change! '..ns.codeTree.lineId)
+			ns.getContext().unparseToCode(ns.codeTree.lineId, t.itemsId, newRa)
+		})
+	}, true))
+
+	ret
+}
+
+instantiateRec = func ns, t {
+		ret = nil
+		items = t.items
+		if items != nil {
+			ret = instantiateItems(ns, t, items)
+		} else if t.left {
+			opcode = binaryOps[t.token]
+			if not opcode { throw('no such opcode '..t.token..' '..serialize(t))}
+			ret = opcode.callback(ns, t.left, t.right)
+		} else if t.right {
+			tok = t.token
+			if tok {
+				opcode = unaryOps[tok]
+				if not opcode { throw('no such opcode '..tok..' '..serialize(t))}
+				ret = opcode.callback(ns, nil, t.right)
+			}
+		} else {
+			data = t.string
+			if data == nil { data = t.number }	
+			if data != nil {
+				ret = createComposite()
+				ret.rv = ns.consts.rvConsts[t.dataId]
+			} else if(t.token != nil) {
+				ret = createComposite()
+				hookCtx = createHookContext()
+				ret.add(hookCtx)
+				symbolRv = create(uninitialized)
+				ret.add(spineBlock_hookToNameSpace(hookCtx, ns, t.token, symbolRv))
+
+				ret.rv = symbolRv
+			} else {
+				print('Unused case?')
+				// this happened earlier empty brackets
+				// ret = instantiateItems(ns, t, [])
+			}
+		}
+		ret
+	}
+
+api spineBlock_createReactiveExpression = func ns, codeTree {
+	instantiateRec(ns, codeTree)
+}
+
+
+
+
+  nil
+#####
+
+
+
+
+
+#####
+
+//  SPINE main entrypoint, code input flows through callbacks setup by functions:
+//
+//    reactiveCodeCtx.codeSetText(id, txt)
+//    reactiveCodeCtx.codeGetPrevLineId(id)
+//    reactiveCodeCtx.codeHookLineText(id, callbackTextChanged)
+//    reactiveCodeCtx.codeHookSublines(id, callbackInserted, callbackRemoved)
+
+  spineContext = class reactiveCodeCtx {
+
+	parseLineToAST = func text, isContent {
+		parseToAST(text)
+	}
+
+	  tree = createTreeApi()
+
+	  getContext = func { this }
+
+	  blockIdCounter = 1000
+	  expose createBlock = func consts, codeTree, parentExpr, prevExpr {
+	    expr = { codeTree = codeTree, consts = consts, getContext = getContext, blockId = blockIdCounter }
+	    trace(spine, 'BLOCK CREATE '..blockIdCounter..' '..(codeTree ? codeTree.lineId : 'no codeTree'))
+	    blockIdCounter = blockIdCounter + 1
+//	    print('createBlock '..toStr(codeTree))
+//	    print('createBlock '..toStr(prevExpr)..' '..toStr(parentExpr))
+	    if prevExpr { tree.insertAfter(prevExpr, expr) }
+	    else        { tree.insertFirst(parentExpr, expr) }
+
+	    if codeTree { expr.reactiveHandle = spineBlock_createReactiveExpression(expr, codeTree) }
+	    else { expr.codeTree = { lineId = 'hardLine' } }
+
+	    expr.remove = func {
+	      expr.__debug_BLOCKREMOVE = 'during' 
+		  trace(spine, 'BLOCK REMOVE '..expr.blockId..' '..(expr.codeTree ? expr.codeTree.lineId : 'no codetree'))
+
+ 		  remove(expr.reactiveHandle)
+	      tree.unlink(expr)
+
+		  // todo : should later() during removal be allowed or not? probably not
+
+	      if expr.nameSpaceRead  { for k,v in expr.nameSpaceRead  { print('WARNING '..expr.blockId..' nameSpaceRead leftover '..k) } }
+	      if expr.nameSpaceWrite { for k,v in expr.nameSpaceWrite { print('WARNING '..expr.blockId..' nameSpaceWrite leftover '..k) } }
+	      expr.__debug_BLOCKREMOVE = 'done' 
+	    }
+	    expr
+	  }
+
+	sharedConstantsPerLine = { }
+	prevTextPerLine = { }
+
+	expose unparseToCode = func lineId, itemsId, raNewItemStructure {
+		consts = sharedConstantsPerLine[lineId]
+		unparseConstant = func node {
+			tmp = get(consts.rvConsts[node.dataId])
+			if tmp == nil { #{ js debugger #} }  
+			tmp == nil ? 'missingConstant' : (type(tmp) == 'string' ? toJSON(tmp) : toStr(tmp))
+		}		
+		unparseItems = itemsId != nil ? func out, t, unparseRec {
+			if t.itemsId != itemsId or len(t.items) == raLen(raNewItemStructure) { // checking the len is not enough
+				return nil
+			}
+			newStuff = {}
+			raForEachKV(raNewItemStructure, func _, v, k {
+				newStuff[k] = k
+			})
+			for i * len(t.items) {
+				item = t.items[i]
+				newStuff[item.token == '=' ? item.left.token : i] = nil
+			}
+			first = true
+			for k,v in newStuff {
+				if(first) {first = false} else { push(out,', ') }
+				out.push(k .. ' = ')
+				out.push(toJSON(reactiveToDs(raGet(raNewItemStructure, k), true)))
+			}
+			for i * len(t.items) {
+				item = t.items[i]
+				if(raGet(raNewItemStructure, item.token == '=' ? item.left.token : i) != nil) {
+					if(first) {first = false} else { push(out,',') }
+					unparseRec(item)
+				}				
+			}
+			return true
+		} : nil
+
+		text = unparseCodeTree(consts.codeTreeArray, unparseConstant, unparseItems)
+
+		// if items where changed, make sure block is reparsed/recreated to hook up new constants
+		// Note that this interupts touch/mouse-dragging, ideally we would update/patch the AST 
+		// and append the consts array instead to avoid interrupting direct manipulation
+
+		if itemsId == nil {  
+			consts.text = text // if only constants changed, make sure block is not recreated
+		}
+
+		trace(spine, "\nunparsed      "..lineId.."\n"..text)
+		reactiveCodeCtx.codeSetText(lineId, text)
+	}
+
+	// creates sustained expression instances from an array of codetrees
+	// returns:  { expressions = [{}, {}, ...], remove = func {} }
+
+	expose createBlocksFromCodeTreeArray = func id, codeTreeArray, parentExpr, tmpPrevExpr {
+		__debugLastText = parentExpr.__debugLastText
+		consts = sharedConstantsPerLine[id]
+		if consts == nil { throw('no consts for '..id) }
+
+		arrayExpr = []
+	    cleanArrayExpr = func {
+	    	for i, v in arrayExpr {
+	    		ct=v.codeTree
+	    		trace(spine, 'remove expr '..i..': '..(ct.beginPos == nil ? __debugLastText : substring(__debugLastText, ct.beginPos, ct.endPos)))
+	    		remove(v)
+	    	}
+	    	arrayExpr = []
+	    }
+
+	    out = { remove = cleanArrayExpr }
+
+		for i * len(codeTreeArray) {
+			tmpPrevExpr = createBlock(consts, codeTreeArray[i], parentExpr, tmpPrevExpr)
+			push(arrayExpr, tmpPrevExpr)
+		}	      
+		out.expressions = arrayExpr
+
+		out
+	}
+
+	assignLineIdRec = nil
+	assignLineIdRec = func codeTreeArray, id {
+		for i * len(codeTreeArray) {
+			codeTreeArray[i].lineId = id
+			if codeTreeArray[i].subTree { assignLineIdRec(codeTreeArray[i].subTree, id) }
+		}	 	
+	}
+
+	createLineExpressions = func id, parentExpr, subObjs, overrideFunc {
+		out = { }
+		exprHandle = nil
+//		first = true
+		prevConsts = nil
+		textHook = reactiveCodeCtx.codeHookLineText(id, func text {
+//			externalChange = true
+//			externalChange = text != prevTextPerLine[id]
+//			print('codeHookLineText callback '..text..'  '..toStr(externalChange))
+			changedUsingUnparse = prevConsts != nil and prevConsts == sharedConstantsPerLine[id] and text == prevConsts.text
+			trace(spine, 'createLineExpressions() codeHookLineText '..changedUsingUnparse)
+			if not changedUsingUnparse {
+//				first = false
+//				prevTextPerLine[id] = text
+				remove(exprHandle)
+
+				prevLineObj = subObjs[reactiveCodeCtx.codeGetPrevLineId(id)]
+				tmpPrevExpr = prevLineObj != nil ? getLast(prevLineObj.expressions) : nil
+				trace(spine, 'line -> expr: '..text)  
+
+
+				parentExpr.__debugLastText = text
+				res = nil
+				r = tryCall(func {
+					res = parseLineToAST(text, (tmpPrevExpr or parentExpr).codeTree.isContent) // parsing can be cached
+				})
+				if r.error {
+					print('ERROR createLineExpressions:\n'..r.shortError)
+					res = parseLineToAST("", (tmpPrevExpr or parentExpr).codeTree.isContent) // fix empty expr!
+				}
+				assignLineIdRec(res.codeTreeArray, id) // try to avoid this since it allows reusing parsed structure
+     
+				if sharedConstantsPerLine[id] == nil or sharedConstantsPerLine[id].text != text {
+					sharedConstantsPerLine[id] = { _ctx = createHookContext(), rvConsts = {}, text = text } 
+					consts = sharedConstantsPerLine[id]
+					consts.codeTreeArray = res.codeTreeArray
+					for k, v in res.dataVals {
+						consts.rvConsts[k] = create(v)
+						hook(consts._ctx, consts.rvConsts[k], func {
+							// if any constant changes, reverse parse				
+							unparseToCode(id)
+						})				
+					}					
+				}
+				prevConsts = sharedConstantsPerLine[id]
+
+				exprHandle = (overrideFunc or createBlocksFromCodeTreeArray) (id, res.codeTreeArray, parentExpr, tmpPrevExpr)
+				out.expressions = exprHandle.expressions
+			}
+		})
+		out.remove = func { remove(textHook) ; remove(exprHandle) ; exprHandle = nil }
+		out
+	}
+
+
+	createSublinesExpressions = func expr, ownerExpr, overrideFunc {
+		subObjs = {}
+		return reactiveCodeCtx.codeHookSublines(expr.codeTree.lineId, func newId {
+
+			// inserted
+
+			assert(subObjs[newId], '==', nil)
+			subObjs[newId] = createLineExpressions(newId, ownerExpr, subObjs, overrideFunc)
+
+		}, func id{ 
+
+			// removed
+
+			assert(subObjs[id], '!=', nil)
+			remove(subObjs[id])
+			subObjs[id] = nil
+		})
+	}
+
+	expose runSubLines = func expr, ownerExpr, overrideFunc {
+		subTree = expr.codeTree.subTree
+		if subTree {
+			print('UNPARSED'..serialize(subTree,10,10))
+			print('UNPARSED'..unparseCodeTree(subTree, nil))
+			print('UNPARSED'..unparseCodeTree([subTree], nil))
+			return (overrideFunc or createBlocksFromCodeTreeArray) (expr.codeTree.lineId, subTree, ownerExpr, nil)
+		} else {
+			return createSublinesExpressions(expr, ownerExpr, overrideFunc)		
+		}
+	}
+
+	  expose createEntryPoint = func id, optionalReturnCallback {
+	  	trace(spine, 'createEntryPoint '..id)
+		rootExpr = { codeTree = { isContent = false, lineId = id } }  // change to createBlock?
+		obj = createComposite()
+//		obj.add(rootExpr)
+		obj.add(createSublinesExpressions(rootExpr, rootExpr))
+//		if optionalReturnCallback {	optionalReturnCallback(obj) }	
+		obj.rootExpression = rootExpr
+		obj
+	  }
+  }
+
+
+// in-memory-representation of spine code, this is basically a mirror of the code database,
+// but stripped from nodes outside the tree, and with linked lists for quick access of the
+// order, it is crucial that pushCodeUpdate are directly synced with the tree of micro-actors
+// (which is kind of the callstack of spine) through the callbacks
+
+// internally merged with spineContext
+
+	api reactiveTextTreeContext = class {
+
+
+		spine = new spineContext(this)
+		expose pushCodeUpdate = spine.pushCodeUpdate
+
+		codeLines = {}
+		codeExecuters = {}
+
+		sendRemovedCallbacks = func v {
+			parent = codeLines[v.pId]
+			if parent != nil {
+				llForEach(parent.sublineListeners, func item {
+					item.callbackRemoved(v.id)
+				},'prev','next')
+			}
+		}
+
+		reqSublineList = func codeLine { codeLine.sublines = codeLine.sublines or llCreate('prev','next') }
+
+		changeData = func codeLine, dat, isInsertion {
+
+			if codeLine.currentHandle {
+				remove(codeLine.currentHandle)
+				codeLine.currentHandle = nil
+			}
+
+			if codeExecuters[dat] and (isInsertion or codeLine.dat != dat) {
+				handle = codeExecuters[dat][0](codeLine.id)
+				if codeExecuters[dat][1] { codeExecuters[dat][1](handle) } 
+				codeLine.currentHandle = handle
+			}
+
+			codeLine.dat = dat
+
+			llForEach(codeLine.textListeners, func item {
+				item.f(dat)
+			},'prev','next')
+		}
+
+		insertIntoParent = func parent, v {
+			sPrio = v.sPr
+			prev = nil
+			cur = nil
+
+			// use backwards traversal (assumes new nodes last)
+			reqSublineList(parent)
+			stopped = llForEach(parent.sublines, func x { prev = cur; cur = x; return sPrio > x.sPr and 'break' }, 'next', 'prev')
+			if not stopped      { llInsert(parent.sublines, v, 'prev', 'next')  }
+			else if prev == nil { llInsert(parent.sublines, v, 'next', 'prev')  } // single item which stopped iteration
+			else 				{ llInsert(cur, v, 'prev', 'next')  }
+
+			changeData(v, v.dat, true)
+
+			parent.sublineListeners = parent.sublineListeners or llCreate('prev','next')
+			llForEach(parent.sublineListeners, func item {
+				item.callbackInserted(v.id)
+			},'prev','next')				
+		}
+
+
+		getValueFromDiff = func d {
+			if type(d) == 'array' {
+				if len(d) == 1 {
+					return d[0]
+				} else if len(d) == 2 and d[0] == 0 {
+					return d[1]
+				}
+			}
+		}
+
+		expose pushCodeUpdate = func diff {
+			for id, v in diff {
+				trace(spine, 'pushCodeUpdate '..id..'\n    '..toStr(v))
+				codeLine = codeLines[id]
+				if codeLine == nil and type(v) == 'array' and len(v) != 0 {
+					v = getValueFromDiff(v)
+					parentId = v.pId
+					if parentId {
+						assert(parentId, '!=', nil);
+						assert(v.sPr, '!=', nil);
+						assert(v.dat, '!=', nil);
+						codeLine = {dat = v.dat, sPr = v.sPr, pId = parentId, id = id}
+						codeLines[id] = codeLine
+						if parentId != '?' {
+							parent = codeLines[parentId]
+							if parent != nil { 
+								insertIntoParent(parent, codeLine)								
+							} else {	
+								print('WARNING pushCodeUpdate() 1 parent is nil '..parentId..'\n'..toStr(v))							
+							}	
+						}
+					} else if v.root {
+						codeLines[id] = {dat = v.dat, root = true, id = id}
+					} else { throw('pushCodeUpdate() Error in src-data'..id..' '..toStr(v)) }
+				} else if codeLine == nil and type(v) == 'array' and len(v) == 0 {
+					print('WARNING pushCodeUpdate() cannot delete non existing ' .. id)
+				} else if codeLine == nil and type(v) != 'array' {
+					print('WARNING pushCodeUpdate() failed updating ' .. id .. ' ' .. toStr(v))
+				} else if type(v) == 'array' and len(v) == 0 {
+					assert(codeLine, '!=', nil)
+					trace(spine, 'line removed '..(codeLine.id)..' '..(codeLine.dat))
+					sendRemovedCallbacks(codeLine)
+					if codeLine.prev { llUnlink(codeLine,'prev','next') } // remove
+				} else {
+					if v.pId != nil or v.sPr != nil {
+						dat = getValueFromDiff(v.dat)
+						pId = getValueFromDiff(v.pId)
+						sPr = getValueFromDiff(v.sPr)
+						sendRemovedCallbacks(codeLine)
+						codeLine.pId = pId if pId
+						codeLine.sPr = sPr if sPr
+						codeLine.dat = dat if dat
+						if codeLine.pId != '?' {
+							parent = codeLines[codeLine.pId]
+							if parent != nil {
+								insertIntoParent(parent, codeLine)
+							} else {
+								assert(codeLine, '!=', nil)
+								if codeLine.prev { llUnlink(codeLine,'prev','next') }  // remove
+								print('WARNING pushCodeUpdate() 2 parent is nil '..(codeLine.pId)..'\n'..toStr(v))							
+							}
+						} else {
+							assert(codeLine, '!=', nil)
+							if codeLine.prev { llUnlink(codeLine,'prev','next') } // remove							
+						}
+					} else if v.dat != nil {
+						dat = getValueFromDiff(v.dat)
+						changeData(codeLine, dat)
+					}
+				}
+			}
+		}
+
+		expose setInstanceRoot = func text, f, returnFunc { 
+			codeExecuters[text] = [f or spine.createEntryPoint, returnFunc]
+		}
+
+		expose codeSetText = func id, txt { }
+
+		expose setFeedbackFunc = func setTextFunc { this.codeSetText = setTextFunc }
+
+		expose codeGetPrevLineId = func id    { codeLine = codeLines[id] ;  assert(codeLine, '!=', nil) 
+			parent = codeLines[codeLine.pId]
+			it = codeLine
+			while true {
+				it = llGet(parent.sublines, it, 'prev')
+				if it == nil {
+					return nil
+				} else if it.pId != '?' { 
+					return it.id
+				}
+			}
+		}
+
+		expose codeHookLineText  = func id, f { codeLine = codeLines[id] ;  assert(codeLine, '!=', nil)
+			codeLine.textListeners = codeLine.textListeners or llCreate('prev', 'next')		
+			item = {f = f}
+			item.remove = func {
+				trace(spine, 'unlink text listener '..id)
+				llUnlink(item, 'prev', 'next') // unlink from textListeners
+			} 	
+			llInsert(codeLine.textListeners, item, 'prev', 'next')
+			f(codeLine.dat) // initiate
+			item
+		}
+
+		expose codeHookSublines  = func id, callbackInserted, callbackRemoved {
+			codeLine = codeLines[id]
+			assert(codeLine, '!=', nil)
+			codeLine.sublineListeners = codeLine.sublineListeners or llCreate('prev', 'next')
+			item = {callbackInserted = callbackInserted, callbackRemoved = callbackRemoved}
+			item.remove = func {
+				trace(spine, 'unlink subline listener '..id)
+				llUnlink(item, 'prev', 'next') // unlink from sublineListeners
+				llForEach(codeLine.sublines, func subline {
+					callbackRemoved(subline.id)
+				},'prev','next')				
+			}
+			assert(codeLine, '!=', nil)
+			llInsert(codeLine.sublineListeners, item, 'prev', 'next')
+
+			// initiate, call inserted callback for current items
+			llForEach(codeLine.sublines, func subline {
+				callbackInserted(subline.id)
+			},'prev','next')
+
+			item
+		}
+
+	}
+nil
+
+
+
+
+
+
+//
+//
+//
+//                SPINE HELPERS
+//
+//
+
+
+
+#####
+
+
+// index a reactive array within a reactive value, with a default fallback
+// callback is action only ( no return )
+
+api spine_createRaConnection = func ctx, rvToRa, token, options, changedCallback {
+	val = nil
+	internalRv = nil
+	curRv = nil
+	curRa = nil
+	options = options or {}
+	out = {}
+
+	innerHook = func {
+		if changedCallback {
+			if curRv == nil {
+				if internalRv == nil {
+					//tdef = type(options.def)
+					//if tdef == 'array' || tdef == 'table' {
+					//	// create raArray?
+					//	internalRv = create(...)
+					//} else {
+						internalRv = create(options.def)
+					//}
+				}
+				curRv = internalRv
+			}
+			if changedCallback(curRv) != nil {
+				print("spine_createRaConnection - callback should not return") 
+			}
+		}
+	}
+
+	raHandle = nil
+	baseHook = hook(ctx, rvToRa, func { // hook reference
+		remove(raHandle) ; raHandle = nil
+		maybeRa = get(rvToRa)
+		if isReactiveArray(maybeRa) {
+			curRa = maybeRa
+			out.currentReactiveArray = curRa
+			// print("baseHook out.currentReactiveArray = curRa "..token) // debug spine_createVec2Conn issue
+			raHandle = raHookKey(curRa, token, func events { // hook reactive array
+				for i,v in events {
+					if v[0] == 'inserted' {
+						rv = raGet(curRa, v[1])
+						if rv.___class == 'reactiveValue' {
+							// print("baseHook inserted "..token) // debug spine_createVec2Conn issue
+							curRv = rv
+							innerHook()
+						} else {
+							print('createValueConnection Warning expected reactive value '..toStr(rv))
+						}
+					} else if v[0] == 'removed'  {
+						// print("baseHook removed "..token) // debug spine_createVec2Conn issue
+						curRv = nil
+						innerHook()
+					} else {
+						print('createValueConnection() Warning unknown event '..i..'  '..toStr(v))
+					}
+				}
+			})
+		} else {
+			curRa = nil
+			out.currentReactiveArray = nil
+			// print("baseHook out.currentReactiveArray = nil "..token) // debug spine_createVec2Conn issue
+		}
+	}, true)
+
+	//if curRv == nil { innerHook() }
+
+	out.remove = func { unhook(baseHook) ; remove(raHandle) ; raHandle = nil }
+
+	return out
+}
+
+#####
+
+ // (pos = [10,20])  ==  rv -> ra  ->  rv -> ra  ->   2x rv -> 2x values  
+ //                               pos            0,1  
+
+
+api spine_createVec2Conn = func rvToRa, token, options, changedCallback {
+	x = nil
+	y = nil
+	rvX = nil
+	rvY = nil
+	hRa = nil
+	hRvX = nil
+	hRvY = nil
+	xHook = nil
+	yHook = nil
+	ctx = createHookContext()
+	item = {
+		get = func { rvX==nil or rvY==nil? (options.def != nil ? options.def : [0,0]) : [get(rvX), get(rvY)] }
+		set = func v {
+			if rvX == nil {
+				if hRa and hRa.currentReactiveArray and raGet(hRa.currentReactiveArray, token) == nil {
+
+					// "create-on-write"
+					// inject missing value into reactive array (can flow to source code)
+
+					x = v[0]
+					y = v[1]
+					newRa = raCreate()
+					raInsert(newRa, 0, create(x))
+					raInsert(newRa, 1, create(y))
+					raInsert(hRa.currentReactiveArray, token, create(newRa))
+					// print('in spine_createVec2Conn') 
+				} else {
+					print('error spine_createVec2Conn 1')
+				}
+			} else {
+				x = v[0]
+				y = v[1]
+				set(rvX, x)
+				set(rvY, y)	
+			}
+		}
+		remove = func { remove(hRvX) ; remove(hRvY) ; remove(hRa) ; remove(ctx) ;  }
+	}
+
+	// print("spine_createVec2Conn root "..token) // debug spine_createVec2Conn issue
+	
+	hRa = spine_createRaConnection(ctx, rvToRa, token, options, func newRv {
+
+		// print("spine_createVec2Conn "..token..' '..newRv) // debug spine_createVec2Conn issue
+
+		remove(hRvX) ; hRvX = nil
+		hRvX = spine_createRaConnection(ctx, newRv, 0, {def = options.def == nil ? 0 : options.def[0]}, func newRvX {
+			// print("spine_createVec2Conn x "..token..' '..newRv) // debug spine_createVec2Conn issue
+			rvX = newRvX
+			if changedCallback {
+				if xHook { unhook(xHook) }
+				xHook = hook(ctx, rvX, func {
+					newX = get(rvX)
+					if x != newX {
+						x = newX
+						changedCallback(item)  // opt todo: fix so that changedCallback is just called once if both x/y are changed
+					}
+				}, true)
+			}
+		})
+
+		remove(hRvY) ; hRvY = nil
+		hRvY = spine_createRaConnection(ctx, newRv, 1, {def = options.def == nil ? 0 : options.def[1]}, func newRvY {
+			rvY = newRvY
+			if changedCallback {
+				if yHook { unhook(yHook) }
+				yHook = hook(ctx, rvY, func {
+					newY = get(rvY)
+					if y != newY {
+						y = newY
+						changedCallback(item)
+					}
+				}, true)
+			}
+		})
+	})
+
+	if rvX == nil {
+		changedCallback(item)
+	}
+
+	item
+}
+
+#####
+
+api spine_createVec3Conn = func rvToRa, token, options, changedCallback {
+	x = nil
+	y = nil
+	z = nil
+	rvX = nil
+	rvY = nil
+	rvZ = nil
+	hRa = nil
+	hRvX = nil
+	hRvY = nil
+	hRvZ = nil
+	xHook = nil
+	yHook = nil
+	zHook = nil
+	ctx = createHookContext()
+	item = {
+		get = func { rvX==nil or rvY==nil or rvZ==nil?(options.def != nil ? options.def : [0,0,0]):[get(rvX), get(rvY), get(rvZ)] }
+		set = func v { x = v[0] ; y = v[1] ; z = v[2] ; set(rvX, x) ; set(rvY, y) ; set(rvZ, z) }
+		remove = func { remove(hRvX) ; remove(hRvY) ; remove(hRvZ) ; remove(hRa) ; remove(ctx) ;  }
+	}
+
+	hRa = spine_createRaConnection(ctx, rvToRa, token, options, func newRv {
+		remove(hRvX) ; hRvX = nil
+		hRvX = spine_createRaConnection(ctx, newRv, 0, {def = options.def == nil ? 0 : options.def[0]}, func newRvX {
+			rvX = newRvX
+			if changedCallback {
+				if xHook { unhook(xHook) }
+				xHook = hook(ctx, rvX, func {
+					newX = get(rvX)
+					if x != newX {
+						x = newX
+						changedCallback(item)  // opt todo: fix so that changedCallback is just called once if x/y/z are changed
+					}
+				}, true)
+			}
+		})
+
+		remove(hRvY) ; hRvY = nil
+		hRvY = spine_createRaConnection(ctx, newRv, 1, {def = options.def == nil ? 0 : options.def[1]}, func newRvY {
+			rvY = newRvY
+			if changedCallback {
+				if yHook { unhook(yHook) }
+				yHook = hook(ctx, rvY, func {
+					newY = get(rvY)
+					if y != newY {
+						y = newY
+						changedCallback(item)
+					}
+				}, true)
+			}
+		})
+
+		remove(hRvZ) ; hRvZ = nil
+		hRvZ = spine_createRaConnection(ctx, newRv, 2, {def = options.def == nil ? 0 : options.def[2]}, func newRvZ {
+			rvZ = newRvZ
+			if changedCallback {
+				if zHook { unhook(zHook) }
+				zHook = hook(ctx, rvZ, func {
+					newZ = get(rvZ)
+					if z != newZ {
+						z = newZ
+						changedCallback(item)
+					}
+				}, true)
+			}
+		})
+
+	})
+
+	item
+}
+
+#####
+
+api spine_createValueConnection = func rvToRa, token, options, changedCallback {
+	x = nil
+	rvX = nil
+	hRa = nil
+	xHook = nil
+	ctx = createHookContext()
+	item = {
+		get = func {
+			if options.strictDef != nil and rvX == nil
+			{
+				// print('spine_createValueConnection strictDef'..options.strictDef)
+				return options.strictDef
+			}
+			v = rvX != nil ? get(rvX) : nil
+			if v == uninitialized or v == nil and not options.allowNil {
+				return options.def != nil ? options.def : 0			
+			}
+			return v
+		}
+		set = func v { x = v ; set(rvX, x) }
+		remove = func { remove(hRa) ; remove(ctx) ;  }
+	}
+
+	hRa = spine_createRaConnection(ctx, rvToRa, token, options, func newRv {
+		rvX = newRv
+		// print('spine_createValueConnection '..token..' '..rvX)
+		if changedCallback {
+			if xHook { unhook(xHook) }
+			xHook = hook(ctx, rvX, func {
+				newX = get(rvX)
+				if x != newX {
+					x = newX
+					changedCallback(item)
+				}
+			}, true)
+		}
+	})
+
+	if rvX == nil and changedCallback {
+		changedCallback(item)
+	}
+
+	item
+}
+
+#####
+
+// does this really need ctx?
+// I guess it provides a secondary option for removal (which kind of bypasses the standard recursive operation)
+
+api spine_hookResolveRa = func ctx, rvToRa, newRvCallback {
+	innerCtx = nil
+//	if ctx == nil {  
+		innerCtx = createHookContext()
+		ctx = innerCtx
+//	}
+
+	raHookHandle = nil
+	rvHandle = hook(ctx, rvToRa, func {
+		remove(raHookHandle) ; raHookHandle = nil
+		ra = get(rvToRa)
+		if ra and ra.___class == 'reactiveArray' {	
+			raHookHandle = raForEach(ra,  newRvCallback)
+		} else {
+			print('Warning hookResolveRa() ___class != reactiveArray')
+		}		
+
+	}, true)
+
+	removeHookArgs = func {
+		trace(spine, 'hookResolveRa remove')
+		remove(raHookHandle)
+		if rvHandle { unhook(rvHandle) ; rvHandle = nil }
+		if innerCtx { remove(innerCtx) ; innerCtx = nil }
+	}
+
+	return  { remove = removeHookArgs }
+}
+
+
+#####
+
+// used in three js example
+api spine_createArrayConnection = func rvToRa, token, options, insertedCallback {
+
+	obj = createComposite()
+	ctx = createHookContext()
+	obj.add(ctx)
+	obj.add(spine_createRaConnection(ctx, rvToRa, token, options, func rv {
+		hooks = {}
+		handles = {}
+
+		obj.add(nil, 'arrayhook')
+		obj.add(spine_hookResolveRa(ctx, rv, func key, rvVal {    // spine_hookResolveRa issue ?
+			assert(hooks[key],'==',nil)
+			assert(handles[key],'==',nil)
+
+			if hooks[key] { unhook(hooks[key]) }
+			hooks[key] = hook(ctx, rvVal, func {
+				val = get(rvVal)
+				if handles[key] { remove(handles[key]) }
+				handles[key] = insertedCallback(key, val)
+
+			}, true)
+
+			return {
+				remove = func {
+					assert(hooks[key], '!=', nil)
+					unhook(hooks[key]) ; hooks[key] = nil
+					remove(handles[key]) ; handles[key] = nil
+				}
+			}
+			
+		}), 'arrayhook')
+
+		return nil   // if the key removed, rv will still be a reactive array and set to options.strictDef or options.def 
+	}))
+
+	return obj
+}
+
+#####
+
+api createIdGenerator = func { i = 1 ; return func { i = i + 1 ; return i } }
+
+#####
+
+recValConnection = nil
+recValConnection = func ctx, outRv, rv, options, valueChangeCallback, parentId {
+	
+	raHookHandle = nil
+	id = nil
+
+	rvHandle = hook(ctx, rv, func {
+		v = get(rv)
+		vt = type(v)
+		if vt == 'number' or vt == 'string' or vt == 'nil' {	// isSimple
+
+			if id == nil { id = parentId }
+
+			valueChangeCallback(id, outRv, v, rv)  // id, dstrv, srcval, srcrv
+
+		} else {
+
+			if id != nil {
+				valueChangeCallback(id)
+				id = nil
+			}
+
+			if vt == 'table' and v.___class == 'reactiveArray' {	
+				remove(raHookHandle)
+
+				outRvVal = get(outRv)
+				if not (type(outRvVal) == 'table' and outRvVal.___class == 'reactiveArray') {
+					outRvVal = raCreate()
+					set(outRv, outRvVal)
+				}
+
+				raHookHandle = raForEach(v, func key, rvVal {
+					outRvForKey = raGet(outRvVal, key)
+					if outRvForKey == nil {
+						outRvForKey = create(uninitialized)
+						raInsert(outRvVal, key, outRvForKey)
+					}
+					newId = parentId .. '_@_' .. key
+					userObj = recValConnection(ctx, outRvForKey, rvVal, options, valueChangeCallback, newId)
+					return {
+						remove = func { if(userObj) { remove(userObj) } ; raRemove(outRvVal, key) }
+					}
+				})
+			}
+		}
+	}, true)
+
+	return {
+		remove = func {
+			remove(raHookHandle)
+			if rvHandle { unhook(rvHandle) ; rvHandle = nil }
+		}
+	}
+}
+
+api spine_createRecursiveValueConnection = func rvToRa, token, options, outRv, itemCallback {
+	obj = createComposite()
+	items = {}
+	obj.currentItems = items
+	// if valueChangeCallback == nil {
+	//	valueChangeCallback = valueChangeCallback or func id, rv, val, rvSrc {
+		valueChangeCallback = func id, rv, val, rvSrc {
+			if rv {
+				if not items[id] {
+					items[id] = createComposite()
+					// items[id] = {} 
+				}
+				items[id].val = val
+				onlyValueChange = items[id].rvSrc == rvSrc and items[id].rvDst == rv
+				if not onlyValueChange {
+					items[id].rvDst = rv			
+					items[id].rvSrc = rvSrc		
+				}
+				if itemCallback != nil {
+					itemCallback(id, items[id], onlyValueChange)
+				}	
+			} else {
+				remove(items[id])
+				items[id] = nil		
+			}
+			return nil
+		}	
+	// }
+
+	ctx = createHookContext()
+	obj.add(ctx)
+	// obj.add(nil, token)
+	innerHandle = nil
+	obj.add(spine_createRaConnection(ctx, rvToRa, token, options, func rv {
+
+		remove(innerHandle)
+		items = {}
+		obj.currentItems = items
+		innerHandle = recValConnection(ctx, outRv, rv, options, valueChangeCallback, 'base')
+		// obj.add(handle, token)
+
+		return nil
+	}))
+
+	return obj
+}
+
+#####
+
+
+api spine_wrapRecursive = func spine_func {
+	return func ns, args, returnVal {
+
+		innerHandle = nil
+
+		wrapCallback = func id, item, onlyValueChange  {
+			// print('' .. (item.val == nil ? 'nil' : item.val) .. ' - ' .. (get(item.rvSrc) == nil ? 'nil' : get(item.rvSrc)) .. ' - ' .. (get(item.rvDst) == nil ? 'nil' : get(item.rvDst)) .. ' - ' .. onlyValueChange)			
+			if not onlyValueChange {
+				remove(innerHandle)
+				innerHandle = spine_func(ns, item.rvSrc, item.rvDst)
+			}			
+		}
+
+		handle = spine_createRecursiveValueConnection(args, 0, {def = uninitialized}, returnVal, wrapCallback)
+		
+		return {
+			remove = func {
+				remove(handle)
+				remove(innerHandle)
+			}
+		}
+	}
+}
+
+
+
+#####
+
+
+
+
+
+//
+//
+//
+//                SPINE COMPONENTS
+//
+//
+//
+
+
+
+
+
+api spineComp_createIt = func ns, args, returnVal {
+/*
+	argHandle = raHookKey(ra, token, func events { 
+		for i,v in events {
+			if v[0] == 'inserted' {
+				rv = raGet(ra, v[1]) ; assert(rv.___class, '==', 'reactiveValue')
+				nameSpaceWrite(ns, v[1], rv, true)
+			} else if v[0] == 'removed'  {
+				nameSpaceWrite(ns, v[1], nil, true)
+			} else {
+				print('createValueConnection() Warning unknown event '..i..'  '..toStr(v))
+			}
+		}
+	})
+
+	createSubExpressions(expr) //
+	
+	{
+		remove = func { remove(argHandle) ; remove(valHandle) }
+	}	
+	*/
+}
+
+#####
+
+api spineComp_createDef = func _ns, _args, _returnVal {
+	set(_returnVal, {
+		___functor = func ns, args, returnVal {
+			trace(spine, 'Instantiate definition')
+			ns.defReturnVal = returnVal
+			handle = nil
+			argRaHook = nil
+			ctx = createHookContext()
+			if _ns {
+
+				hook(ctx, args, func {
+					raArgs = get(args)
+					remove(argRaHook)
+//					assert(raArgs.___class, '==', 'reactiveArray')
+					if raArgs.___class == 'reactiveArray' {
+						argRaHook = raForEach(raArgs, func key, val {
+							return spineBlock_nameSpaceWriteObj(ns, key, val, true)
+						})					
+					}
+
+				}, true)
+
+				nsCtx = _ns.getContext()
+				handle = nsCtx.runSubLines(_ns, ns, func id, codeTreeArray, parentExpr, tmpPrevExpr {
+					trace(spine, 'Instantiate create subexpressions')
+					nsCtx.createBlocksFromCodeTreeArray(id, codeTreeArray, ns, tmpPrevExpr)
+				})
+
+			} else {
+				print('warning, try to instanciate removed definition')
+			}
+
+			{
+				remove = func {
+					remove(handle)
+					remove(argRaHook)
+					remove(ctx)
+				}
+			}
+		} 
+	})
+	{
+		remove = func { _ns = nil }
+	}
+}
+
+#####
+
+
+tree = createTreeApi()
+
+// untested ?
+
+api spineComp_return = func ns, args, returnVal {
+	v = nil
+	closestDef = ns
+	while closestDef {
+		if closestDef.defReturnVal {
+			break;
+		}
+		closestDef = tree.parent(closestDef)
+	}
+	if closestDef {
+		v = spine_createValueConnection(args, 0, {def = uninitialized}, func v {
+			set(closestDef.defReturnVal, v.get())
+		})		
+		ctx = createHookContext()
+		hook(ctx, closestDef.defReturnVal, func {
+			v.set(get(closestDef.defReturnVal))
+		})	
+	}
+
+	return { remove = func { remove(v) ; remove(ctx) } }
+}
+
+#####
+
+// api spineValToBool = func x { not (x == uninitialized or x == nil) } // old behaviour, 1 for true, nil for false
+
+api spineValToBool = func x { 
+	assert(type(x), '!=', 'bool') // we have not yet introduced a bool type...
+	return x == uninitialized or x == nil or x == 0 ? false : true 
+}
+
+#####
+
+api spineComp_if = func ns, args, returnVal {
+	
+	nsCtx = ns.getContext()
+	handle = nil
+	curBool = false
+	v = spine_createValueConnection(args, 0, {def = uninitialized}, func v {
+		newBool = spineValToBool(v.get())
+		if curBool != newBool {
+			curBool = newBool
+			remove(handle)
+			handle = nil
+			if curBool {
+				handle = nsCtx.runSubLines(ns, ns)	
+			}	
+		}
+	})	
+	return { remove = func { remove(v) ; remove(handle) } }
+}
+
+
+#####
+
+//  for i = [1,2,3]    ->  for [i = [1,2,3]]          rv  ->  ra  --(foreach)-->  k,rv  ->  ra  --(foreach)-->  rv/rv/rv
+
+api spineComp_for = func ns, args, returnVal {
+
+	nsCtx = ns.getContext()
+
+	ctx = createHookContext()
+
+	argsHandle = spine_hookResolveRa(ctx, args, func key, rv {
+		iterations = {}
+		trace(spine, 'for iterate '..key)
+
+		return spine_hookResolveRa(ctx, rv, func itKey, itRv, itKeyPrev, itKeyNext {
+			trace(spine, 'for iterate '..key..' '..itKey..' prev:'..toStr(itKeyPrev)..' next:'..toStr(itKeyNext))
+			itRoot = nsCtx.createBlock(nil, nil, ns, itKeyPrev != nil and iterations[itKeyPrev])
+			nsObj = spineBlock_nameSpaceWriteObj(itRoot, key, itRv, true)
+			iterations[itKey] = itRoot
+
+			handle = nsCtx.runSubLines(ns, ns, func id, codeTreeArray, parentExpr, tmpPrevExpr {
+				return nsCtx.createBlocksFromCodeTreeArray(id, codeTreeArray, itRoot, tmpPrevExpr)
+			})	
+
+			removeIteration = func {
+				trace(spine, 'removeIteration '..key)
+				remove(nsObj)
+				remove(handle)
+				remove(itRoot)
+				iterations[itKey] = nil
+			}
+
+			return { remove = removeIteration }
+		})
+
+	//	return { remove = func { print('for iterate delete key '..key) ; remove(iterHandle) } }
+	})
+
+	removeFor = func { remove(ctx) ; remove(argsHandle) }
+
+	return { remove = removeFor }
+}
+
+
+/*
+	curKey = nil
+	valHandle = nil
+	loopHandle = nil
+	loop = {}
+
+	ctx = createHookContext()
+	hook(ctx, args, func {
+		ra = get(args)
+		if ra.___class == 'reactiveValue' {	
+			argRaHook = raHook(raArgs,  func events {
+				for i,v in events {
+					if v[0] == 'inserted' { 
+						nameSpaceWrite(ns, v[1], v[2], true)
+
+					} else if v[0] == 'removed'  {
+						print('Instantiate nameSpace delete '..v[1])
+						nameSpaceWrite(ns, v[1], nil, true)
+					}
+				}
+			})			
+		} else {
+			print('Warning createFor() ___class != reactiveValue')
+		}
+	}, true)
+
+	argHandle = raHookKey(ra, token, func events { 
+		for i,v in events {
+			if v[0] == 'inserted' {
+				rv = raGet(ra, v[1]) ; assert(rv.___class, '==', 'reactiveValue')
+				valHandle = hook(ctx, rv, func {
+					ra = get(rv)
+					if isReactiveArray(ra) {
+
+
+						loopHandle = raHookKey(ra, token, func events { 
+							for i,v in events {
+								if v[0] == 'inserted' {
+
+								} else if v[0] == 'removed'  {
+								}
+							}
+						})
+
+
+					} else {
+						curKey = nil
+						print('CreateFor expected reactive array')
+					}				
+				})
+			} else if v[0] == 'removed'  {
+				if v[1] == curKey {
+					removeEntireLoop()
+				}
+				rv = raGet(ra, v[1]) ; assert(rv.___class, '==', 'reactiveValue'
+			} else {
+				print('createValueConnection() Warning unknown event '..i..'  '..toStr(v))
+			}
+		}
+	})
+		{
+		remove = func {
+			removeEntireLoop()
+		//	remove(argHandle)
+			remove(valHandle)
+		}
+	}
+}
+	*/
+
+#####
+
+isReady = func x { x != nil and x.___class != "notReady" } 
+
+api createRoundOrFloor = func offset {
+
+	return func ns, rvIn, returnVal {
+
+		ctx = createHookContext()
+
+		lastVal = nil
+		hook(ctx, rvIn, func {
+			val = get(rvIn)
+			if isReady(val) {
+				lastVal = floor(val + offset)
+				set(returnVal, lastVal)						
+			}
+			else  {
+				set(returnVal, uninitialized)						
+			}
+		}, true)	
+
+		hook(ctx, returnVal, func {
+			outVal = get(returnVal)
+			inval = get(rvIn)
+			if lastVal == nil {
+				lastVal = outVal
+			}
+			if isReady(inval) and isReady(outVal) {
+				newValF = outVal + offset
+				newVal = floor(newValF)
+				// print('floor() out change '..get(returnVal)..' '..lastVal..' '..newVal)
+				if newVal != lastVal {
+					newInVal = inval + (newVal - lastVal) // add diff to inval
+					lastVal = floor(newInVal + offset)			
+					set(rvIn, newInVal)
+					set(returnVal, lastVal)					
+				} 
+				else 
+				{
+					set(returnVal, lastVal)	
+				}
+			}
+		})
+
+		return ctx
+	}
+}
+
+#####
+
+isReady = func x { x != nil and x.___class != "notReady" } 
+
+api spineComp_createRoundOrFloor = func offset {
+
+	return func ns, args, returnVal {
+
+		ctx = createHookContext()
+
+		lastVal = nil
+		v = spine_createValueConnection(args, 0, {def = uninitialized}, func v {
+			val = v.get()
+			print('round '..val)			
+			if isReady(val) {
+				lastVal = floor(val + offset)
+				set(returnVal, lastVal)						
+			}
+			else  {
+				set(returnVal, uninitialized)						
+			}
+		})	
+
+		hook(ctx, returnVal, func {
+			outVal = get(returnVal)
+			inval = v.get()
+			if lastVal == nil {
+				lastVal = outVal
+			}
+			if isReady(inval) and isReady(outVal) {
+				newValF = outVal + offset
+				newVal = floor(newValF)
+				// print('floor() out change '..get(returnVal)..' '..lastVal..' '..newVal)
+				if newVal != lastVal {
+					newInVal = inval + newVal - lastVal
+					lastVal = floor(newInVal + offset)			
+					v.set(newInVal)
+					set(returnVal, lastVal)					
+				} 
+				else 
+				{
+					set(returnVal, lastVal)	
+				}
+			}
+		})
+
+
+
+/*
+
+		// newest try, not completed debugging, prob wrong
+
+		v = nil
+		inP = nil
+		outP = nil
+		upd = func {
+			if v == nil { return }
+
+			outV = get(returnVal)
+			inV = v.get()
+
+			if not isReady(inV) {
+				print("floor, waiting for proper input...")
+				return
+			}
+
+			if inP == nil { // initial
+				inP = inV
+				outP = floor(inV+ offset)
+			}
+
+			if not isReady(outV) {
+				outV = outP
+			}
+
+			outD = outV - outP
+			inD  = inV - inP
+
+			if outD == 0 and inD == 0 {
+				return
+			}
+			print("                                                                 outD:"..outD.."    "..outV.." - "..outP)
+			print("                                                                  inD:"..inD.."    "..inV.." - "..inP)
+
+			inV = inP + inD + outD 
+			outV = floor(inV + offset)
+
+			inP = inV
+			outP = outV  //  outP and out always integer here
+
+			//print("floor set in    inD:"..inD.."  outD:"..outD.."      "..inV.." -> "..outV)
+			v.set(inV)
+			//print("floor set out   inD:"..inD.."  outD:"..outD.."      "..inV.." -> "..outV)
+			set(returnVal, outV)		
+			print("floor done      inD:"..inD.."  outD:"..outD.."      "..inV.." -> "..outV)
+		}
+
+		v = spine_createValueConnection(args, 0, {def = uninitialized}, upd)
+		hook(ctx, returnVal, upd)
+*/
+
+
+/*
+this does not work, interaction coords are not delta!
+
+		accumFloat = 0
+		lastReturn = nil
+		v = spine_createValueConnection(args, 0, {def = uninitialized}, func v {
+			inval = v.get()
+			if inval {
+				lastReturn = floor(inval + accumFloat + offset)
+				print("floor() in change  "..inval.." "..get(returnVal).." "..lastReturn.." "..accumFloat)				
+				set(returnVal, lastReturn)		
+			}	
+		})	
+
+		hook(ctx, returnVal, func {
+			outVal = get(returnVal)
+			inval = v.get()
+			if lastReturn == nil {
+				lastReturn = outVal
+			}
+			if inval and outVal {
+				diff = outVal - lastReturn
+				accumFloat = accumFloat + diff
+				curOut = floor(v.get() + accumFloat + offset)
+				print(    "floor() out change "..inval.." "..curOut.." "..lastReturn.." "..accumFloat)
+				if curOut != lastReturn {
+					iDiff = curOut - lastReturn
+					print("floor() iDiff      "..inval.." "..curOut.." "..lastReturn.." "..accumFloat)
+					lastReturn = curOut				
+					accumFloat = accumFloat - iDiff
+					v.set(v.get() + iDiff)
+				}
+
+			}
+	
+		})
+*/		
+
+/*
+
+		lastVal = nil
+		v = spine_createValueConnection(args, 0, {def = uninitialized}, func v {
+			lastVal = floor(v.get() + offset)
+			set(returnVal, lastVal)			
+		})	
+
+		hook(ctx, returnVal, func {
+			accum = get(returnVal) - lastVal + offset
+	//		print('accum '..accum..' '..lastVal)
+			if accum < 0 or accum > 1 {
+				lastVal = floor(lastVal + accum)
+				accum = accum - floor(accum)
+	//			print('createFloor inv '..accum..' '..lastVal)
+				v.set(lastVal)
+			} 
+			set(returnVal, lastVal)
+		})
+*/
+		return {
+			remove = func { remove(v) ; remove(ctx) }
+		}
+	}
+}
+
+#####
+
+api spineComp_clamp = func ns, args, returnVal {
+	ctx = createHookContext()
+	vVal = uninitialized
+	miVal = uninitialized
+	maVal = uninitialized
+	update = func {
+		if isFiniteNumber(vVal) and isFiniteNumber(miVal) and isFiniteNumber(maVal) {
+			vVal = clamp(vVal, miVal, maVal)
+			set(returnVal, vVal)			
+		} else {
+			set(returnVal, uninitialized)	
+		}	
+	}
+
+	v  = spine_createValueConnection(args, 0, {def = uninitialized}, func v  { vVal  =  v.get() ; update() })	
+	mi = spine_createValueConnection(args, 1, {def = 0},             func mi { miVal = mi.get() ; update() })	
+	ma = spine_createValueConnection(args, 2, {def = 1},             func ma { maVal = ma.get() ; update() })	
+
+	hook(ctx, returnVal, func {
+		invVal = get(returnVal)
+		if isFiniteNumber(invVal) and isFiniteNumber(miVal) and isFiniteNumber(maVal) {
+			invValClamp = clamp(invVal, miVal, maVal)
+			if invValClamp != invVal {
+				set(returnVal, invValClamp)
+			}
+			v.set(invValClamp)
+		}
+	})
+
+	return {
+		remove = func { remove(v) ; remove(mi) ; remove(ma) ; remove(ctx) }
+	}
+
+}
+
+#####
+
+/*
+
+mix
+
+	https://madtealab.com/#F=2&G=1&E=0&R=0&W=534&GW=480&GH=253&GX=0.5&GY=0.5&GS=1.15721942255857&f1=b_weight%281+-+x%29&f1N=a_weight&f2=x%3C%3D0+%3F+0+%3A+x%3E%3D1+%3F+1+%2F+x+%3A+x+%2B+2%2Ax%2A%281+-+x%29&f2N=b_weight
+	https://madtealab.com/#F=2&G=1&GX=0.6026997094462611&GY=0.5428736730166901&GS=1.3435028842544408&f1=x%3C0%3F1%2F%281-x%29+%3A+x%3E1%3F0+%3A+%281+-+x%29+%2B+2%2Ax%2A%281+-+x%29&f2=x%3E1%3F1%2F+++x++%3A+x%3C0%3F0+%3A++++++x++%2B+2%2Ax%2A%281+-+x%29
+
+
+run
+  a = [round(218), round(506)]
+  b = [round(649), round(519)]
+  for i = 0....16
+    point pos = [mix(a[0], b[0], i/16), mix(a[1], b[1], i/16)]
+
+*/
+
+mix_forward = func cur, prev {
+	a = cur[1]
+	b = cur[2]
+	i = cur[3]
+	cur[0] = a + i * (b - a)
+}
+
+mix_backward = func cur, prev {
+	rPrev = prev[0]
+	r = cur[0]
+	a = cur[1]
+	b = cur[2]
+	i = cur[3]	
+	diff = r - rPrev
+	if i > 0 and i < 1 {
+		cur[1] = a + diff * ((1 - i) + 2*i*(1 - i))
+		cur[2] = b + diff * ((    i) + 2*i*(1 - i))
+	} else if i <= 0 {
+		cur[1] = a + diff / (1 - i)
+	} else if i >= 1 {
+		cur[2] = b + diff / i
+	}
+}
+
+rvs_to_numberfunc_adapter = func rvs, forward, backward {
+	ctx = createHookContext()
+	N = len(rvs)
+	cur = []
+	prev = []
+	for i * N { prev[i] = uninitialized ; cur[i] = uninitialized }
+
+	update_forward = func {
+		prev = cur
+		cur = []  // we could prob swap here to reuse memory?
+		onlyNumbers = true
+		for i * N {
+			cur[i] = get(rvs[i])
+			if i > 0 and type(cur[i]) != 'number' {
+				onlyNumbers = false
+			}
+		}
+		if onlyNumbers {
+			forward(cur, prev)
+			set(rvs[0], cur[0])	 // forward should never touch input, so only need to update output (id:0)
+			// for i * N { set(rvs[i], cur[i])}
+		} else {
+			set(rvs[0], uninitialized)	
+		}	
+	}	
+
+	for i = 1, N - 1 { hook(ctx, rvs[i], update_forward) }
+
+	if backward != nil {
+		hook(ctx, rvs[0], func {
+			prev = cur
+			cur = []  // we could prob swap here to reuse memory?
+			onlyNumbers = true
+			for i * N {
+				cur[i] = get(rvs[i])
+				if type(cur[i]) != 'number' { 
+					onlyNumbers = false 
+				}
+			}
+			backward(cur, prev)
+			for i * N { set(rvs[i], cur[i])}
+		})
+	}
+
+	update_forward()
+
+	return { remove = func { remove(ctx) } } 
+}
+
+api spineComp_mix2 = func ns, args, returnVal {
+
+	ctx = createHookContext()
+	N = 4
+	rvs = [returnVal, nil, nil, nil]
+	defs = [returnVal, nil, nil, createConst(0.5)]
+	argsHandle = spine_hookResolveRa(ctx, args, func key, rv {
+
+		if type(key) != 'number' or key >= N - 1 {
+			print('warning outside arg range ' .. key)
+			return { remove = func { } } 
+		}
+		id = key + 1
+		rvs[id] = rv
+		allValid = true
+		for i = 1, N - 1 {
+			if rvs[i] == nil {
+				//if defs[i] == nil {
+					allValid = false 
+				//} else {
+				//	rvs[i] = defs[i] // defaults cause issues?
+				//}
+			} 
+		}
+		if allValid {
+			return rvs_to_numberfunc_adapter(rvs, mix_forward, mix_backward)
+		}
+		return { remove = func { } } 
+	})
+
+	return { remove = func { remove(ctx) ; remove(argsHandle) } } 
+}
+
+#####
+
+api spineComp_mix = func ns, args, returnVal {
+	ctx = createHookContext()
+	aVal = uninitialized
+	bVal = uninitialized
+	iVal = uninitialized
+	rVal = uninitialized
+	update = func {
+		if type(aVal) != 'number' or type(bVal) != 'number' or type(iVal) != 'number' {
+			rVal = uninitialized
+		} else {
+			rVal = aVal + iVal * (bVal - aVal)	
+		}	
+		set(returnVal, rVal)	
+	}
+
+	a = spine_createValueConnection(args, 0, {def = uninitialized}, func a { aVal = a.get() ; update() })	
+	b = spine_createValueConnection(args, 1, {def = uninitialized}, func b { bVal = b.get() ; update() })	
+	i = spine_createValueConnection(args, 2, {strictDef = 0.5}    , func i { iVal = i.get() ; update() })	
+
+	hook(ctx, returnVal, func {
+		prev = rVal
+		aVal = a.get()
+		bVal = b.get()
+		iVal = i.get()
+		rVal = get(returnVal)
+		diff = rVal - prev
+		if iVal > 0 and iVal < 1 {
+			aVal = aVal + diff * ((1 - iVal) + 2*iVal*(1 - iVal))
+			bVal = bVal + diff * ((    iVal) + 2*iVal*(1 - iVal))
+			a.set(aVal)
+			b.set(bVal)
+		} else if iVal <= 0 {
+			aVal = aVal + diff / (1 - iVal)
+			a.set(aVal)
+		} else if iVal >= 1 {
+			bVal = bVal + diff / iVal
+			b.set(bVal)
+		}
+	})
+
+	return {
+		remove = func { remove(a) ; remove(b) ; remove(i) ; remove(ctx) }
+	}
+
+}
+
+#####
+
+api spineComp_createTrace = func ns, args, returnVal {
+	v = spine_createValueConnection(args, 0, {def = 'no argument'}, func v { 
+		print(' --- TRACE --- ' .. toStr(v.get()))
+	})	
+
+	return {
+		remove = func { remove(v) }
+	}
+}
+
+#####
+
+api spineComp_createAnimationGenerator = func innerFunc {
+	return func ns, args, returnVal {
+		hz = 1
+		pos = 0
+		v = spine_createValueConnection(args, 0, {def = 1}, func v { 
+			hz = v.get()
+		})	
+		intervalHandle = onInterval(0, func deltaTime {
+			pos = pos + deltaTime * hz
+			pos = pos - floor(pos)
+			set(returnVal, innerFunc(pos) )
+		})
+		return {
+			remove = func { remove(v) ; remove(intervalHandle) }
+		}
+	}
+}
+
+
+
+#####
+
+api spineComp_createSmooth = func reverseAlt {
+
+	return func ns, args, returnVal {
+
+	dstChangeVals = {}
+	curVals = {}
+	cur = nil
+	amt = spine_createValueConnection(args, 1, {def = 1})	
+
+	itemCallback = reverseAlt ? nil : func id, item {
+		val = get(item.rvDst)
+		if val != curVals[id] {
+			print('sill '..id)
+			dstChangeVals[id] = val
+			set(item.rvDst, curVals[id])
+		}
+	}
+
+	inp = spine_createRecursiveValueConnection(args, 0, {def = 'no argument'}, returnVal, itemCallback)
+
+	intervalHandle = onInterval(0, func {
+		
+
+		if inp == nil { return }
+		amtVal = amt.get()
+		frameT = frameTime()
+		for id, item in inp.currentItems {
+			cur = curVals[id]
+			if item.val == 'no argument' {
+				print('warning, smooth no arg')
+			} else {
+				if cur == nil {
+					cur = item.val
+				} else {
+					if reverseAlt {
+						dstVal = get(item.rvDst)
+						if dstVal != cur and type(dstVal) == 'number' {
+							// destination was changed by someone else, make the change go through to source
+							item.val = get(item.rvSrc) + (dstVal - cur)
+							set(item.rvSrc, item.val)
+						}
+					} else {
+
+					}
+
+					if amtVal != 0 {
+						if abs(item.val - cur) < 0.001 {
+							cur = item.val
+						} else {
+							cur = cur + (1-exp(-pi*2*frameT/amtVal)) * (item.val - cur)
+						}
+					} else {
+						cur = item.val
+					}
+				}
+				set(item.rvDst, cur)
+				curVals[id] = cur		
+			}
+		}
+	})
+
+	return {
+		remove = func { remove(intervalHandle) ; remove(amt) ; remove(inp) ; inp = nil }
+	}
+
+
+/*
+	inp = spine_createValueConnection(args, 0, {def = 'no argument'}, func inp { 
+		dst = inp.get()
+		if amt.get() == 0 {
+			cur = dst
+			set(returnVal, dst)
+		}
+	})	
+
+	intervalHandle = onInterval(0, func {
+		amtVal = amt.get()
+		if cur == nil or amtVal == 0 {
+			cur = dst
+		} else {
+			cur = cur + (1-exp(-pi*2*frameTime()/amtVal)) * (dst - cur) 
+		}
+		set(returnVal, cur)		
+	})
+
+	return {
+		remove = func { remove(intervalHandle) ; remove(amt) ; remove(inp) }
+	}*/
+}
+}
+
+#####
+
+api spineComp_frameTime = func ns, args, returnVal {
+	intervalHandle = onInterval(0, func {
+		set(returnVal, frameTime())
+	})
+	return {
+		remove = func { remove(intervalHandle) }
+	}
+}
+
+#####
+
+first_time = nil
+
+api spineComp_time = func ns, args, returnVal {
+
+	if first_time == nil {
+		first_time = getTime()
+	}
+
+	intervalHandle = onInterval(0, func {
+		set(returnVal, getTime() - first_time)
+	})
+	return {
+		remove = func { remove(intervalHandle) }
+	}
+}
+
+#####
+
+api spineComp_getTime = func ns, args, returnVal {
+	intervalHandle = onInterval(0, func {
+		set(returnVal, getTime() )
+	})
+	return {
+		remove = func { remove(intervalHandle) }
+	}
+}
+
+#####
+
+api spineComp_state = func ns, args, returnVal {
+	nsCtx = ns.getContext()
+
+	ctx = createHookContext()
+
+	argsHandle = spine_hookResolveRa(ctx, args, func statevarname, rv {
+		trace(spine, 'state create '..statevarname)
+
+		nsObj = nil
+		rvStateVar = nil
+		if statevarname != 0 {
+			
+			// normal syntax: "state a = 2" or multiple "state a = 2, b = 3, c = 4"
+
+			later( func {   // todo: going from "a = 1" to "state a = 1" breaks if this delay is not here, guess assignment removal executes after our creation here
+				rvStateVar = create(get(rv)) 
+				nsObj = spineBlock_nameSpaceWriteObj(ns, statevarname, rvStateVar, false) // deleting this causes
+			})
+		} else { 
+		    
+			// "inline" syntax: "a = state 2"
+
+			rvStateVar = returnVal
+			set(returnVal, get(rv))
+		}
+
+		// todo! state is actually not saved anywhere
+		// hook(ctx, rvStateVar, func {  
+		//   .. n push to db etc
+		// }) 
+
+		removeStateVar = func {
+			trace(spine, 'state removeVar '..statevarname) 
+			remove(nsObj)
+		}
+
+		return { remove = removeStateVar }
+	})
+
+	removeState = func { remove(argsHandle) ; argsHandle = nil ; remove(ctx) }
+
+	return { remove = removeState }
+}
+
+
+#####
+
+api spineComp_delta = func ns, args, returnVal {
+
+	v0 = spine_createRecursiveValueConnection(args, 0, {def = 'no argument'}, returnVal)
+	prevFrameTime = 1/60
+	intervalHandle = onInterval(0, func {
+		if v0 == nil { return }
+		for item in v0.currentItems {
+			if item.val == 'no argument' {
+				item.prevVal = nil
+			} else {
+				if item.prevVal == nil { item.prevVal = item.val }
+				set(item.rvDst, (item.val - item.prevVal)/prevFrameTime)
+				item.prevVal = item.val			
+			}
+		}
+		prevFrameTime = frameTime()		
+	})
+	return {
+		remove = func { remove(intervalHandle) ; remove(v0) ; v0 = nil }
+	}
+
+
+/*
+	v0 = spine_createValueConnection(args, 0, {def = 0})
+	prevVal = v0.get()
+	prevFrameTime = 1/60
+	intervalHandle = onInterval(0, func {
+		curVal = v0.get()
+		set(returnVal,(curVal-prevVal)/prevFrameTime)
+		prevVal = curVal
+		prevFrameTime = frameTime()
+	})
+	return {
+		remove = func { remove(intervalHandle) ; remove(v0) }
+	}
+*/	
+}
+
+#####
+
+api spineComp_integrate = func ns, args, returnVal {
+	v1 = spine_createValueConnection(args, 1, {def = 0})	    
+	v0 = spine_createValueConnection(args, 0, {def = 0})
+	intervalHandle = onInterval(0, func {
+		v1.set(v1.get() + v0.get()*frameTime())
+	})
+	return {
+		remove = func { remove(intervalHandle) ; remove(v0) ; remove(v1) }
+	}
+}
+
+
+#####
+
+api spineComp_integral = func ns, args, returnVal {
+	v1 = spine_createValueConnection(args, 1, {def = 0})	    
+	v0 = spine_createValueConnection(args, 0, {def = 0}, func v0 { 
+		v1.set(v1.get() + v0.get())
+	})	
+	return {
+		remove = func { remove(v0) ; remove(v1) }
+	}
+}
+
+#####
+
+api spineComp_magnitude = func ns, args, returnVal {
+
+	handle = nil
+
+	valid = false
+	calcMag = func {
+		mag = 0
+		hasItems = false
+		for item in handle.currentItems {
+			if isFiniteNumber(item.val) {
+				hasItems = true
+				mag = mag + item.val * item.val
+			}
+		}	
+		valid = true
+		set(returnVal, hasItems ? sqrt(mag) : uninitialized)
+	}
+
+	onAnyChange = func id, item, onlyValueChange  {
+		if valid {
+			later(calcMag)
+			valid = false
+		}
+	}
+	 
+	_unused = create(uninitialized) // todo: spine_createRecursiveValueConnection replicates an output structure, which we don't use... BAD!  
+
+	handle = spine_createRecursiveValueConnection(args, 0, {def = uninitialized}, _unused, onAnyChange)
+	
+	calcMag()
+
+	return {
+		remove = func {
+			remove(handle)
+		}
+	}
+}
+
+
+#####
+
+api spineComp_onAnim = func ns, args, returnVal {
+
+	v0 = spine_createRecursiveValueConnection(args, 0, {def = 'no argument'}, returnVal)
+
+	intervalHandle = onInterval(0, func {
+		if v0 == nil { return }
+		later(func {
+		later(func {
+		later(func {
+		later(func {
+		later(func {
+		later(func {
+		later(func {
+		later(func {
+			for item in v0.currentItems {
+				if item.val != 'no argument' {
+					set(item.rvDst, item.val)
+				}
+			}	
+		})
+		})
+		})
+		})
+		})
+		})
+		})
+		})
+	})
+	return {
+		remove = func { remove(intervalHandle) ; remove(v0) ; v0 = nil }
+	}
+}
+
+#####
+
+api spineComp_wrapSingleNumberArg = func innerFunc, defa {
+	return func ns, args, returnVal {
+		v = spine_createValueConnection(args, 0, {def = defa}, func v { 
+			set(returnVal, innerFunc(v.get()) )
+		})	
+		return {
+			remove = func { remove(v) }
+		}
+	}
+}
+
+#####
+
+api spineComp_wrapDoubleNumberArg = func innerFunc {
+	return func ns, args, returnVal {
+		#{ js debugger #}
+
+		v0 = nil
+		v1 = nil
+		updateF = func {
+			if v0 and v1 {
+				set(returnVal, innerFunc(v0.get(), v1.get()) )	
+			}
+		}
+		v0 = spine_createValueConnection(args, 0, {def = 0}, updateF)	
+		v1 = spine_createValueConnection(args, 1, {def = 0}, updateF)
+		updateF()	
+		return {
+			remove = func { remove(v0) ; remove(v1)  }
+		}
+	}
+}
+
+
+#####
+
+api spineComp_random = func ns, args, returnVal {
+	set(returnVal, random()) 
+	return { remove = func { } }
+}
+
+#####
+
+keysInited = false
+keyHooks = { }
+initKeys = func {
+	setKeyListener(func name, val {
+		if keyHooks[name] {
+			for rv in keyHooks[name] {
+				set(rv, val ? 1 : 0)
+			}
+		}
+	})
+}
+releaseHook = func name, obj {
+	id = keyHooks[name].indexOf(obj)
+	assert(id, '!=', -1)
+	keyHooks[name].splice(id,1) 	
+}
+
+api spineComp_keyDown = func ns, args, returnVal {
+	if not keysInited { initKeys() ; keysInited = true }
+
+	curName = nil
+
+	set(returnVal, 0)
+
+	v0 = spine_createValueConnection(args, 0, {def = 0}, func v0 {
+		if curName != nil { releaseHook(curName, returnVal) }
+		curName = v0.get()
+		keyHooks[curName] = keyHooks[curName] or []
+		push(keyHooks[curName], returnVal)
+	})	
+
+	return { remove = func { remove(v0) ; if curName != nil { releaseHook(curName, returnVal) } } }
+}
+
+#####
+
+
+api createSpineApp = func options {
+	
+	options = options or {}
+	
+	initGlobalTimers()
+
+	tree = createTreeApi()
+
+	codeWindowSize = {w:1000, h:300} // note: w is replaced with current width in pageSize hook
+	textErr = nil
+	margin = 10
+
+	codeInput   = wrapSetToModel(gHookContext,  {text = options.code or '\n\nrun\n\n', rect = [0, 0, codeWindowSize.w - margin, codeWindowSize.h - margin] }, createTextInput)
+	if options.debug {
+		textErr = wrapSetToModel(gHookContext,  {text = '', rect = [codeWindowSize.w, 0, codeWindowSize.w - margin, codeWindowSize.h - margin] }, createTextInput)
+	}
+
+	if options.pageSize {
+		hook(gHookContext, options.pageSize, func {
+			wh = get(options.pageSize)
+			set(codeInput.rect, [0, 0, wh[0], codeWindowSize[1]]) 
+		}, true)
+	}
+
+	db = createDb()
+	state = createState(db) 
+	
+	// log all functions 
+	// global tracingFunctionsEnabled = false
+	// verboseLog = create(0)
+	// hook(gHookContext, verboseLog, func { tracingFunctionsEnabled = get(verboseLog) == '1' })
+	// state.add({log = verboseLog})
+
+	state.add({code = codeInput.text})
+
+	syncDbToHttpFragment(db, {
+		interval = 0.5
+		stateDefaults = state.defaults
+		omitDefaults = false
+		onDbChangedFromFragment = state.sync
+		blockUpdate = func { if options.isDragging { options.isDragging() } }
+	 })
+
+	codeDb = createDb()
+	codeDbListen = codeDb.subscribe()
+
+	syncInstance = new setupTextToDbSync(codeInput.text, codeDb, {autoIndent = true, detectTree = true})
+	codeCtx = new reactiveTextTreeContext
+	runRoot = nil
+	updateCode = nil
+	codeCtx.setFeedbackFunc(func id, txt {
+		diff = {}
+		diff[id] = { dat = [0, txt] }
+		codeDb.applyDiff(diff)
+		updateCode(0)
+	})
+
+	injectComponents = func block, components {
+		obj = createComposite()
+		for name, createFunc in components {
+			obj.add(spineBlock_nameSpaceWriteObj(block, name, create({ ___functor = createFunc })))
+		}
+		;
+		return obj
+	}
+
+	globs = nil
+	app = {
+		injectComponents = injectComponents
+		remove = func {
+			remove(globs)
+		}
+	}
+
+	codeCtx.setInstanceRoot('run', nil, func newRootObj {
+		globs = injectComponents(newRootObj.rootExpression, {
+			def       = spineComp_createDef
+			return    = spineComp_return
+			for       = spineComp_for
+			if        = spineComp_if 
+			state     = spineComp_state
+			trace     = spineComp_createTrace 
+			// floor     = spineComp_createRoundOrFloor(0)
+			// round     = spineComp_createRoundOrFloor(0.5)
+			floor     = spine_wrapRecursive(createRoundOrFloor(0))
+			round     = spine_wrapRecursive(createRoundOrFloor(0.5))
+			clamp     = spineComp_clamp
+			mix       = spineComp_mix
+			gensaw    = spineComp_createAnimationGenerator(func x { x }) 
+			gensin    = spineComp_createAnimationGenerator(func x { sin(x*pi*2) }) 
+			gencos    = spineComp_createAnimationGenerator(func x { cos(x*pi*2) }) 
+			time      = spineComp_time
+			getTime   = spineComp_getTime
+			frameTime = spineComp_frameTime
+			abs       = spineComp_wrapSingleNumberArg(abs, uninitialized)
+			sin       = spineComp_wrapSingleNumberArg(sin, uninitialized)
+			cos       = spineComp_wrapSingleNumberArg(cos, uninitialized)
+			pow       = spineComp_wrapDoubleNumberArg(pow)
+			atan2     = spineComp_wrapDoubleNumberArg(atan2)
+			// delta     = spineComp_delta
+			integrate = spineComp_integrate
+			// integral  = spineComp_integral
+			random    = spineComp_random
+			smooth    = spineComp_createSmooth(true)
+			// smooth2   = spineComp_createSmooth(true)
+			// onAnim    = spineComp_onAnim
+			magnitude    = spineComp_magnitude
+			keyDown   = spineComp_keyDown 
+		})
+
+		runRoot = newRootObj.rootExpression ; print('RUNROOT!')
+
+		if options.onRun { options.onRun(app, newRootObj.rootExpression) }
+
+	})
+
+	codeDb.applyDiff({  codeRoot = [{ root = true }]  })
+
+	lastDelay = nil
+	lastFeedbackDelay = nil
+
+	updateCode = func delayTime {
+		remove(lastDelay)
+		lastDelay = delay(delayTime == nil ? 0.4 : delayTime, func {
+			lastDelay = nil
+			syncInstance.syncNow()
+			if codeDbListen.hasChanged() {
+				codeCtx.pushCodeUpdate(codeDbListen.getDiff())
+				codeDbListen.clearDiff()	
+				// print('db: ' .. codeDb.getEntireDbAsJsonText())	
+			}
+
+			if textErr and runRoot {
+				remove(lastFeedbackDelay)
+				lastFeedbackDelay = delay(0.2, func {
+					lastFeedbackDelay = nil
+					str = 'run'
+					it = runRoot
+				//	it = tree.forward(it)
+					while(it) {
+			    		ct = it.codeTree
+						id = ct.lineId
+						data = codeDb.get(id)
+						datStr = data == nil ? '       ' : (data.dat == '' or data.dat == nil ? toStr(data) : getTokenRange(data.dat, ct.beginPos, ct.endPos) )
+						str = str .. '\n' .. rep(' ',tree.depth(it)) .. it.blockId .. ' ' .. datStr
+						str = str .. (it.reactiveHandle and it.reactiveHandle.rv != nil ? '    == ' .. toStr(get(it.reactiveHandle.rv), 25) : '')
+						if it.nameSpaceRead  { str = str .. '   Read:' .. fold(func cur, v, k { cur..' '..k..':'..(v.source ? v.source.id : 'nil') }, '', it.nameSpaceRead ) }
+						//if it.nameSpaceWrite { str = str .. '   Write:' .. fold(func cur, v, k { cur..' '..k}, '', it.nameSpaceWrite) }
+						if it.nameSpaceWrite { str = str .. '   Write:' .. fold(func cur, v, k { cur..' '..k..':'..v.id..'='..toStr(get(v),4) }, '', it.nameSpaceWrite) }
+						it = tree.forward(it)
+					}
+									
+					str = str .. '\n\n'
+					it = runRoot
+					it = tree.forward(it)
+					while(it) {
+			    		ct = it.codeTree
+						id = ct.lineId
+						data = codeDb.get(id)
+						datStr = data == nil ? '       ' : (data.dat == '' or data.dat == nil ? toStr(data) : getTokenRange(data.dat, ct.beginPos, ct.endPos) )
+						str = str .. '\n\n' .. rep(' ',tree.depth(it)) .. datStr .. (it.rv != nil ? '   (' .. toStr(get(it.rv)) .. ')' : '') .. '\ncodeTree:' .. serialize(ct, nil, 10)
+						it = tree.forward(it)
+					}
+					
+					set(textErr.text, str)		
+				})		
+			}
+		})
+	}
+
+	hook(gHookContext, codeInput.text, updateCode, options.skipInitialSync == nil ? true : options.skipInitialSync)
+
+	return app
+}
+
+#####

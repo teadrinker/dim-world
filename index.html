@@ -1,0 +1,55 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+<head>
+<title>Dim World Boot</title>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<META NAME=keywords LANG=en CONTENT="web based run time environment">
+<META NAME=author CONTENT="Martin Eklund">
+	
+<STYLE TYPE="TEXT/CSS">
+<!--
+	textarea { margin:0 ; padding: 0px ; border:0 }
+	div, body, input { margin:0 ; padding:0 ; border:0 ; font-family: Verdana, Arial, Helvetica, sans-serif ; font-size:11px ; color: #AABBCC }
+	body				{ background-color:#000;margin:0;padding:0;overflow:hidden }
+
+	textarea:focus {
+		outline-color: #ffffff22; 
+		outline-style: solid;
+		outline-width: 2px;
+		border-color: #007bff; 
+	}
+
+	a					{ text-decoration:none; color: #778899}
+
+	a:link,
+	a:visited,
+	a:active			{ color: #778899}
+
+	a:hover				{ color: #EEAAAA}
+
+
+	a.ml				{  }
+-->
+</STYLE>
+
+<script src="dw_runtime.js"></script>
+<!-- app main script here -->
+<script src="dw_dscript.js"></script>
+<script src="dw_dscript_tests.js"></script>
+<script src="dw_io_simple.js"></script>
+<script src="dw_boot.js"></script>
+
+<!--
+<script src="aes.js"></script>
+<script src="webgl-utils.js"></script>
+<script src="XAudioJS/swfobject.js"></script>
+<script src="XAudioJS/resampler.js"></script>
+<script src="XAudioJS/XAudioServer.js"></script>
+-->
+
+<script src="three/three.js"></script>
+
+<script> function BlockMove(event) {  if (event.target.tagName !== 'TEXTAREA') event.preventDefault() } </script>
+
+<body onLoad="dw_g_boot('dwds_');" ontouchmove="BlockMove(event);"><div id="dwds_html_root" style="background-color:#000;width:100%;height:100%;border:0;margin:0;padding:0;" >Loading... </div></body>
+</html>

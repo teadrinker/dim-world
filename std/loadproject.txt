@@ -1,0 +1,28 @@
+
+
+query = uriToTable(getURLQueryString())
+
+projectName = query.project
+doDeploy = query.deploy
+
+if projectName {
+	
+	loadAndExecute('projects/'..projectName..'/main.txt', 'main')
+
+	if doDeploy == '1' and getGlobal('textToFunc') {
+		print('deploying in 2 seconds')
+		initGlobalTimers()
+		delay(2, func {
+			print('deploying')
+
+		//	setServerJobEncryption("SymmetricWriteKey_xxx", "SymmetricReturnKey_xxx")
+
+			buildAndDeployCurrentProject('','','out/'..projectName..'/')
+		})	
+	}
+
+} else {
+
+	setURLQueryString('project=demo')
+
+}
