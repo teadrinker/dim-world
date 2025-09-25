@@ -204,7 +204,6 @@ var js_createIoLib = function(prefix) {
 		}
 		funcs['forK'] = forK
 		funcs['forV' ] = function(o, f) { return forK(o, function(k) { return f(   o[k]) } ) }
-		funcs['forKV'] = function(o, f) { return forK(o, function(k) { return f(k, o[k]) } ) }
 
 		funcs['concat'] = function(a,b) { if(typeof a === 'string') return a + b ; return a.concat(b) }
 		funcs['type']  = function(v) {

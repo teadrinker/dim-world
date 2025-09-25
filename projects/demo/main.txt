@@ -71,7 +71,7 @@ api spineComp_createUiPoint = func ns, args, returnVal {
 	})
 
 	prevFrame = -1
-	mPos = spine_createVec2Conn(args, 'pos', {def = [600,600]}, func mPos { 
+	mPos = spine_createVec2Conn(args, 'pos', {def = [400,400]}, func mPos { 
 
 		ppos = mPos.get()
 		posInputValid = false
@@ -180,7 +180,7 @@ api spineComp_createUiRect = func ns, args, returnVal {
 		drwRect.needDraw()
 	})
 
-	mPos = spine_createVec2Conn(args, 'pos', {def = [600,600]}, func mPos { 
+	mPos = spine_createVec2Conn(args, 'pos', {def = [400,400]}, func mPos { 
 		ppos = mPos.get()
 		posInputValid = false
 		if dragging {
@@ -301,7 +301,7 @@ guiContext.onResize(func {
 
 
 createSpineApp({
-	code = '\n\nrun\n  point pos = [600, 600]'
+	code = '\n\nrun\n  point pos = [400, 400]'
 	pageSize = rvResize
 	isDragging = gGui.isDragging
 	onRun = func app, block {

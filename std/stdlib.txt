@@ -1,8 +1,11 @@
 
-// quick hack to enable spine logging from querystring
+// enable logging from querystring
 if gParserContext != nil {
-	if uriToTable(getURLQueryString()).log == '1' {
-		gParserContext.enableTrace('spine', true)
+	logField = uriToTable(getURLQueryString()).log
+	if type(logField) == 'string' {
+		for v in split(logField, ',') {
+			gParserContext.enableTrace(v, true)
+		}
 	}
 }
 
@@ -1111,7 +1114,6 @@ api delay = nil // fix forward decl
 
 
 _unhook = func h            {
-							  if h.onLastUnhook and h.prev == h.next { h.onLastUnhook() }
                               llUnlink(h, 'prev', 'next')
                               llUnlink(h, 'ctxPrev', 'ctxNext')
                               h.callFunc = nil
@@ -1120,8 +1122,8 @@ _unhookAll = func ctx       { llForEach(ctx._hooks, _unhook, 'ctxPrev', 'ctxNext
 
 api unhook = func h      { if h._hooks { _unhookAll(h) } else { _unhook(h) } }
 api hook = func ctx, mv, f, exe { 
-								assert(mv)
-                              h = { onLastUnhook = mv.onLastUnhook };
+							  assert(mv)
+                              h = { };
                               h.callFunc = func { h.queued = nil ; f() }
                               if not mv.listeners { mv.listeners = llCreate('prev','next') } 
                               llInsert(mv.listeners, h,'next', 'prev') 
@@ -1164,15 +1166,23 @@ api hookMultiple = func ctx, amv, wait, f, exe {
 //							  }
 //                            }
 
-idCounter = 1000
-api create = func defVal, onLastUnhook {
-	idCounter = idCounter + 1
-	return { v = defVal, ___class = 'reactiveValue', onLastUnhook = onLastUnhook, id = idCounter }
-}  
-api get = func mv     { if mv.validate { mv.validate(mv) } mv.v } // todo : remove validate, used anywhere?
-api set = func mv, v, writer  {
-//	print('set '..toStr(mv.v)..' -> '..toStr(v))
+// reactive value impl
 
+idCounter = 1000
+
+api create = func defVal, writer {
+	idCounter = idCounter + 1
+	return { v = defVal, ___class = 'reactiveValue', id = idCounter, lastWriter = writer }
+}  
+
+api get = func mv
+{
+	mv.v
+} 
+
+api set = func mv, v, writer  {
+
+//	print('set '..toStr(mv.v)..' -> '..toStr(v))
 	if type(v) == 'number' and not isFiniteNumber(v) { // eventually allow Infinite values ?
 		print('set '..v)
 //		#{ js debugger #}
@@ -1183,8 +1193,7 @@ api set = func mv, v, writer  {
 		mv.v = v
 		mv.lastWriter = writer
 	} else {
-		if mv.validate { mv.validate(mv) } 
-		if mv['=='] and not mv['=='](mv,v) or v != mv.v {
+		if v != mv.v {
 			mv.v = v
 			mv.lastWriter = writer
 			it = listeners.next
@@ -5015,14 +5024,14 @@ api deepequals = func a, b {
 			}
 		}
 	} else if ta == 'table' { 
-		if forKV(a, func k,v {
-			if not deepequals(v, b[k]) {
+		if forK(a, func k {
+			if not deepequals(a[k], b[k]) {
 				return 'break'
 			}
 		}) != nil { return false }
 
-		if forKV(b, func k,v {
-			if not deepequals(v, a[k]) { // could be improved...
+		if forK(b, func k {
+			if not deepequals(b[k], a[k]) { // could be improved...
 				return 'break'
 			}
 		}) != nil { return false }
