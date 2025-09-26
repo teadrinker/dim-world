@@ -17,7 +17,7 @@ if projectName {
 
 		//	setServerJobEncryption("SymmetricWriteKey_xxx", "SymmetricReturnKey_xxx")
 
-			buildAndDeployCurrentProject('','','out/'..projectName..'/')
+			buildAndDeployCurrentProject('','','out/'..projectName..'/', getGlobal('projectTitle'))
 		})	
 	}
 

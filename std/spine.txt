@@ -2592,6 +2592,8 @@ run
 
 */
 
+// yet another attempt at making an adapter (made instead of working on the presentation for LIVE 2025...) 
+ 
 mix_forward = func cur, prev {
 	a = cur[1]
 	b = cur[2]
@@ -2616,12 +2618,19 @@ mix_backward = func cur, prev {
 	}
 }
 
+// the adapter structure below (or somewhat tweaked) hopefully allows
+// for a new variant of iterationSupportAdapter but with support for N args  
+
 rvs_to_numberfunc_adapter = func rvs, forward, backward {
 	ctx = createHookContext()
 	N = len(rvs)
 	cur = []
 	prev = []
-	for i * N { prev[i] = uninitialized ; cur[i] = uninitialized }
+
+	for i * N {
+		cur [i] = uninitialized 
+		prev[i] = uninitialized
+	}
 
 	update_forward = func {
 		prev = cur
@@ -2647,7 +2656,7 @@ rvs_to_numberfunc_adapter = func rvs, forward, backward {
 	if backward != nil {
 		hook(ctx, rvs[0], func {
 			prev = cur
-			cur = []  // we could prob swap here to reuse memory?
+			cur = []  // could we swap here to reuse memory?
 			onlyNumbers = true
 			for i * N {
 				cur[i] = get(rvs[i])

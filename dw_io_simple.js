@@ -140,7 +140,7 @@ var js_createIoLib = function(prefix) {
 		var reentryblock = false
 		funcs['later'] = function(fnc) { laterl.push(fnc) }
 		funcs['flushLater'] = function(v) {
-			if(reentryblock) { return }  // firefox alerts can cause reentry
+			if(reentryblock) { sysTrace("Warning flushLater() re-entry, skipping...") ; return }  // firefox alerts can cause reentry
 			reentryblock = true
 			for(var i = 0; i < laterl.length ; i++) { 
 				laterl[i]();

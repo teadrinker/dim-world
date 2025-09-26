@@ -283,7 +283,7 @@ api spineComp_createUiRect = func ns, args, returnVal {
 #####
 
 
-
+global projectTitle = 'Spine - Live Demo'
 
 guiContext = createGuiContext()
 gGui = createSimpleGuiSystem(guiContext.getBasicDraw())

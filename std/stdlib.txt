@@ -1215,7 +1215,7 @@ api createConst = func a { create(a) }
 #####
 
 
-api findAndRemove = func a, v {  // prune ??
+api findAndRemove = func a, v {  // rename prune ??
 	all = all == nil and true
 	leng = len(a)
 	i = 0
@@ -1311,6 +1311,10 @@ api genRandomBase64urlString = func len {
 //	assert(sortPrioAddRec('zzzzy', 4, 17), '==', nil)
 //	assert(sortPrioAddRec('00000', 4, -1), '==', nil)
 //	assert(sortPrioAddRec('00001', 4,-17), '==', nil)
+
+// A way to express order without referencing sibling nodes (using a string)
+// To recreate order, just do lexicographical sort using build-in string comparison
+
 api generateSortPrioBetween = func a, b {			// might be good to impl a max char count for sortprio (maybe use max 22 chars like ID:s)
 		if a == false { a = nil }
 		if b == false { b = nil }
@@ -2577,45 +2581,11 @@ entire = structure + all items
 	rtFuncDS = {
 	}
 	
-	// sin(5)   sin 5    sin get5()
-	// we cannot tell if function call gets a list or a plain
-	
-	ctx = nil // todo set this!
-	parseCallbacks = {
-		number  = { callback = func text {  } }
-		string  = { callback = func text {  } }
-		symbol  = { callback = func text {  } }
-		index   = { prec = 11, callback = func a, b { hookOperator(ctx, a, b, opIndex) } },
-		functor = { prec =  3, callback = func a, b {  } },
-//		parantes={ prec = 11  ... }
-		unaryOperators = {
-			'not'    = { callback = func a { } }
-			'-'      = { callback = func a { } }
-		}
-		brackets = {
-			'(' = { prec = 10, end = ')', callback = func x { x } } 
-		}
-		binaryOperators = {
-			','      = { prec =  4, callback = func a, b { 
-												
-															} }
-			'and'    = { prec =  5, callback = func a, b { hookOperator(ctx, a, b, opTypeSupport(func a, b { a and b})) } }
-			'or'     = { prec =  5, callback = func a, b { hookOperator(ctx, a, b, opTypeSupport(func a, b { a or b })) } }
-			'>'      = { prec =  6, callback = func a, b { hookOperator(ctx, a, b, opTypeSupport(func a, b { a >  b })) } }
-			'<'      = { prec =  6, callback = func a, b { hookOperator(ctx, a, b, opTypeSupport(func a, b { a <  b })) } }
-			'>='     = { prec =  6, callback = func a, b { hookOperator(ctx, a, b, opTypeSupport(func a, b { a >= b })) } }
-			'<='     = { prec =  6, callback = func a, b { hookOperator(ctx, a, b, opTypeSupport(func a, b { a <= b })) } }
-			'=='     = { prec =  6, callback = func a, b { hookOperator(ctx, a, b, opTypeSupport(func a, b { a == b })) } }
-			'!='     = { prec =  6, callback = func a, b { hookOperator(ctx, a, b, opTypeSupport(func a, b { a != b })) } }
-	//		'..'     = { prec =  7, callback = func a, b { } }
-			'+'      = { prec =  8, callback = func a, b { hookOperator(ctx, a, b, opAdd, opSub, opSub) } }
-			'-'      = { prec =  8, callback = func a, b { hookOperator(ctx, a, b, opSub, opAdd, opSub, true) } }
-			'%'      = { prec =  9, callback = func a, b { hookOperator(ctx, a, b, opTypeSupport(func a, b { a % b })) } }
-			'*'      = { prec = 10, callback = func a, b { hookOperator(ctx, a, b, opMul, opDiv, opDiv) } }
-			'/'      = { prec = 10, callback = func a, b { hookOperator(ctx, a, b, opDiv, opMul, opDiv, true) } }
-			'^'      = { prec = 11, callback = func a, b { hookOperator(ctx, a, b, opPow, opPowInvA, opPowInvB) } }
-		}
-	}
+
+
+
+
+
 	
 	parseExpression is expected to return {data = <from callback>, tree = [...] }
 	
@@ -2649,7 +2619,6 @@ entire = structure + all items
 	 
 	 ? ( ? A_2 +_3 B_4 )_5
 	 
-	 not a
 
 	
 */	
@@ -4752,7 +4721,7 @@ image -> canvas -> dataurl -> base64 -> serverJob
 
 #####	
 
-	api buildAndDeployCurrentProject = func serverAccessDir, sourceRelDir, destRelDir {
+	api buildAndDeployCurrentProject = func serverAccessDir, sourceRelDir, destRelDir, projectTitle {
 		//options = options ?: {}
 		conns = {}
 		completeGraph = generateCodeConnectionGraph(globalMeta, conns)		
@@ -4773,7 +4742,12 @@ image -> canvas -> dataurl -> base64 -> serverJob
 		stripDScript = not (isGlobalUsedByCurrentProject('textToFunc') or isGlobalUsedByCurrentProject('createDScript'))
 		stripThree   = not isGlobalUsedByCurrentProject('getThreeJs')
 
-		compiled = ['// Compiled to js using the Dim World Environment (ALPHA Version)\n// (c) Martin Eklund, 2015\n// http://teadrinker.net\n\ndw_g_app_main = function() {']
+		compiled = ['''
+// Compiled to js using the Dim World Environment (ALPHA Version)
+// (c) Martin 'teadrinker' Eklund, 2012 - 2025
+// https://github.com/teadrinker/dim-world
+
+dw_g_app_main = function() {''']
 
 		runtime = nil
 		parser = nil
@@ -4864,6 +4838,10 @@ image -> canvas -> dataurl -> base64 -> serverJob
 		} else {
 			push(spec, {type = 'mkdir', targetRelDir = '/three' })
 			push(spec, {type = 'file', sourceRelDir = 'three/three.js'})	
+		}
+
+		if projectTitle {
+			push(spec[1].transforms, ['<title>Dim World Boot</title>', '<title>' .. projectTitle .. '</title>'])		
 		}
 
 		root = {}
