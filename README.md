@@ -9,8 +9,12 @@ then have a very thin php backend (~300 lines)
 The whole endeavor was centered around dscript, an experimental transpiler.
 The only project developed using this framework was [Spine](https://teadrinker.net/spine/) which was also abandoned.
 
-I'm releasing this along with [Spine](https://teadrinker.net/spine/), since it shows
-better debug info than the compiled js version in case someone wants to mess around with the Spine implementation...
+You can run the dev environment here on github pages, and it will transcompile the source on the fly
+(but to actually build or develop, you need it locally obviously):  
+
+ * [Spine with verbose logging](https://teadrinker.github.io/dim-world/?log=spine&project=demo)
+ * [Spine + three.js](https://teadrinker.github.io/dim-world/?project=three)
+ * [Input test (combined Mouse + Touch)](https://teadrinker.github.io/dim-world/?project=touch-test)
 
 I've cleaned up the folder structure, but the code is mostly in prototype/pre-alpha state.
 
