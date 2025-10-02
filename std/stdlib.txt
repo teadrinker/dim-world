@@ -968,41 +968,49 @@ api createTreeApi = class tPrev, tNext, subnodes {
 		prevIt
 	}
 
-	expose forward           = func it, stopAt {
-		tmp = first(it) ; if tmp { return tmp }
-		tmp = next(it)  ; if tmp { return tmp }
-		if it == stopAt { return }
+	expose forward           = func it, stopAt, skipSubnodes {
+		if not skipSubnodes {
+			tmp = first(it) ; if tmp { return stopAt == tmp ? nil : tmp }
+		}
+		tmp = next(it)  ; if tmp { return stopAt == tmp ? nil : tmp }
 		while true {
 			it = it.parent;
-			if it == stopAt { return }
-			if it == nil { return }
+			if it == nil or it == stopAt { return nil }
 			if it.parent == nil { return } // reached end
-			tmp = next(it) ; if tmp { return tmp }
+			tmp = next(it) ; if tmp { return stopAt == tmp ? nil : tmp }
 		}
 		return nil
 	}
 
 	expose backward        = func it, stopAt {
+		
+		assert(stopAt == nil) // impl looks wrong, never tested
+
 		if it.parent == nil { return } // reached the start of the tree
 		it2 = prev(it)
 		if it2 == nil {
-			it2 = it.parent
-			return it2 != stopAt ? it2 : nil
+			return it.parent
+			// it2 = it.parent
+			// return it2 != stopAt ? it2 : nil
 		}
 		while true {
 			tmpLast = last(it2)
 			if tmpLast == nil {
-				if it2 == stopAt { return }
+			//	if it2 == stopAt { return }
 				return it2
 			}
 			it2 = tmpLast
 		}		
 	}	
 
-	expose nextOrAfterNext = func it, stopAt {
-		tmp = nextNode(it)
-		if tmp { return tmp }
-		return forward(deepestLast(it), stopAt)
+	expose nextOrForward = func it, stopAt {  // old name: nextOrAfterNext
+
+		// same as forward w skipSubnodes = 1?
+		forward(it, stopAt, true)
+
+		// tmp = nextNode(it)
+		// if tmp { return tmp }
+		// return forward(deepestLast(it), stopAt)
 	}
 }
 
@@ -4258,11 +4266,11 @@ function median(a) { if (!arguments || arguments.length == 0) return undefined;	
 				attr = toLower(substring(name, 3, 4)) .. substring(name, 4)
                 ival = model[attr]
 				if ival == nil { ival = values[attr] }
-				if ival == nil { ival = interface['get'..attr] and interface['get'..attr]() }
+				if ival == nil { ival = interface['get'..substring(name, 3)] and interface['get'..substring(name, 3)]() }
 				if ival == nil { throw('missing defaultvalue for '..attr) }
 				mval = create(ival)
 				model[attr] = mval
-				hook(hc, mval, func { fun(get(mval)) })
+				hook(hc, mval, func { fun(get(mval)) }, true)
 			}
 		}
 		model

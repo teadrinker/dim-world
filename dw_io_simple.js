@@ -144,7 +144,7 @@ var js_createIoLib = function(prefix) {
 			reentryblock = true
 			for(var i = 0; i < laterl.length ; i++) { 
 				laterl[i]();
-				if(i>100000) {
+				if(i>400000) {
 					throw('flushLater overflow limit!')
 				}
 			}

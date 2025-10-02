@@ -70,6 +70,11 @@ api spineComp_createUiPoint = func ns, args, returnVal {
 		drwLine.needDraw()
 	})
 
+	mRadius = spine_createValueConnection(args, 'radius', {def = 6}, func mRadius {
+		drwPoint.needDraw()
+		drwLine.needDraw()
+	})
+
 	prevFrame = -1
 	mPos = spine_createVec2Conn(args, 'pos', {def = [400,400]}, func mPos { 
 
@@ -109,9 +114,10 @@ api spineComp_createUiPoint = func ns, args, returnVal {
 	if drwPoint {
 		drawBindings = coordCtx.bindUpdateFunction([drwPoint, drwLine], func {
 			dataPos = mPos.get()
-			drwPoint.update('circle', {x = dataPos[0], y = dataPos[1], radius = dragging ? 10 : 6, col = mCol.get() })
+			rad = mRadius.get()
+			drwPoint.update('circle', {x = dataPos[0], y = dataPos[1], radius = rad * (dragging ? 1.8 : 1), col = mCol.get() })
 			drwLine.update('line', dragging ?
-				{x1 = ppos[0], y1 = ppos[1], x2=dataPos[0] , y2 = dataPos[1], col = mCol.get(), opacity = 0.5, width = 6 } : nil)
+				{x1 = ppos[0], y1 = ppos[1], x2=dataPos[0] , y2 = dataPos[1], col = mCol.get(), opacity = 0.5, width = rad } : nil)
 		})	
 		drwPoint.needDraw()
 	}

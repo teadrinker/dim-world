@@ -767,26 +767,253 @@ unaryOps = {
 tree = createTreeApi()
 
 block_getNameSpaceLink = func B, token {
-	if B.nameSpaceRead and B.nameSpaceRead[token] != nil and B.nameSpaceRead[token].source != nil {
-		trace(spine, 'block_getNameSpaceLink read found '..token)
-		return B.nameSpaceRead[token].source
-	}
 	if B.nameSpaceWrite and B.nameSpaceWrite[token] != nil {
-		trace(spine, 'block_getNameSpaceLink write found '..token)
+		trace(spine, 'block_getNameSpaceLink write found '..token..' id:'..B.blockId)
 		return B.nameSpaceWrite[token]
+	}	
+	if B.nameSpaceRead and B.nameSpaceRead[token] != nil and B.nameSpaceRead[token].source != nil {
+		trace(spine, 'block_getNameSpaceLink read found '..token..' id:'..B.blockId)
+		return B.nameSpaceRead[token].source
 	}
 	return nil
 }
+
+
+/*
+
+api createTreeApi = class tPrev, tNext, subnodes {
+	tPrev  = tPrev or 'tPrev'
+	tNext  = tNext or 'tNext'
+	subnodes = subnodes  or 'tSubnodes'
+	
+	forEach = llForEach
+	reqSubnodeList = func o { if not o[subnodes] { o[subnodes] = llCreate(tPrev, tNext) } }
+
+	tRec   = nil; tRec   = func o, f      { r = f(o) ; if r == 'break' { return r } ; if r != 'skipSubnodes' and forEach(o[subnodes], func x { tRec  (x, f) }  ,tPrev,tNext) { return 'break' }                                         }
+	tRecR  = nil; tRecR  = func o, f      { r = f(o) ; if r == 'break' { return r } ; if r != 'skipSubnodes' and forEach(o[subnodes], func x { tRecR (x, f) }  ,tNext,tPrev) { return 'break' }                                         }
+	tRecP  = nil; tRecP  = func o, f      {                                           if                         forEach(o[subnodes], func x { tRecP (x, f) }  ,tPrev,tNext) { return 'break' } ; if f(o) == 'break' { return 'break' } }
+	tRecPR = nil; tRecPR = func o, f      {                                           if                         forEach(o[subnodes], func x { tRecPR(x, f) }  ,tNext,tPrev) { return 'break' } ; if f(o) == 'break' { return 'break' } }
+
+	tRec2  = nil; tRec2  = func o, f1, f2 { r = f1(o); if r == 'break' { return r } ; if r != 'skipSubnodes' and forEach(o[subnodes], func x { tRec2(x,f1,f2)} ,tPrev,tNext) { return 'break' } ; if f2(o)== 'break' { return 'break' } }
+	tRec2R = nil; tRec2R = func o, f1, f2 { r = f1(o); if r == 'break' { return r } ; if r != 'skipSubnodes' and forEach(o[subnodes], func x { tRec2R(x,f1,f2)},tPrev,tNext) { return 'break' } ; if f2(o)== 'break' { return 'break' } }
+
+	nextNode = func o { if o.parent == nil { return nil } ; llGet(o.parent[subnodes], o, tNext) }
+	prevNode = func o { if o.parent == nil { return nil } ; llGet(o.parent[subnodes], o, tPrev) }
+
+	expose unlink            = func o    { assert(o) ; assert(o[tPrev]) assert(o.parent) ; llUnlink(o, tPrev, tNext) ; o.parent = nil }
+
+	expose traverseSubnodes  = func o, f { return forEach(o[subnodes], f, tPrev, tNext) }
+	expose traverseSubnodesR = func o, f { return forEach(o[subnodes], f, tNext, tPrev) }
+
+	expose traverse          = tRec     // call ->  recurse forwards           (pre order)
+	expose traverseR         = tRecR    // call ->  recurse backwards          (pre order, reverse)
+	expose traverseP         = tRecP    //          recurse forwards  -> call  (post order)
+	expose traversePR        = tRecPR   //          recurse backwards -> call  (post order, reverse)
+	expose traverse2         = tRec2    // call1 -> recurse forwards  -> call2 (2 functions)
+	expose traverse2R        = tRec2R   // call1 -> recurse backwards -> call2 (2 functions, reverse)
+
+	expose hasSubnodes       = func o { sn = o[subnodes]; return sn and llGet(sn, sn, tNext) != nil and true or false }
+
+	expose parent            = func n { n.parent }
+	expose first             = func o { sn = o[subnodes]; return sn and llGet(sn, sn, tNext) }
+	expose last              = func o { sn = o[subnodes]; return sn and llGet(sn, sn, tPrev) }
+	expose next              = nextNode
+	expose prev              = prevNode
+
+	expose insertFirst       = func parent, ins { reqSubnodeList(parent); llInsert( parent[subnodes], ins, tPrev, tNext) ; ins.parent = parent }
+	expose insertLast        = func parent, ins { reqSubnodeList(parent); llInsert( parent[subnodes], ins, tNext, tPrev) ; ins.parent = parent }
+	expose insertBefore      = func rel, ins    {                         llInsert( rel,              ins, tNext, tPrev) ; ins.parent = rel.parent }
+	expose insertAfter       = func rel, ins    {                         llInsert( rel,              ins, tPrev, tNext) ; ins.parent = rel.parent }
+
+	expose depth             = func it {
+		cnt = 0
+		while it {
+			it = it.parent
+			cnt = cnt + 1
+		}
+		cnt
+	}
+
+	expose deepestLast       = func it {
+		prevIt = nil
+		while it {
+			prevIt = it
+			it = last(it)
+		}
+		prevIt
+	}
+
+	expose forward           = func it, stopAt, skipSubnodes {
+		if not skipSubnodes {
+			tmp = first(it) ; if tmp { return tmp }
+		}
+		tmp = next(it)  ; if tmp { return tmp }
+		if it == stopAt { return }
+		while true {
+			it = it.parent;
+			if it == stopAt { return }
+			if it == nil { return }
+			if it.parent == nil { return } // reached end
+			tmp = next(it) ; if tmp { return tmp }
+		}
+		return nil
+	}
+
+	expose backward        = func it, stopAt {
+		if it.parent == nil { return } // reached the start of the tree
+		it2 = prev(it)
+		if it2 == nil {
+			it2 = it.parent
+			return it2 != stopAt ? it2 : nil
+		}
+		while true {
+			tmpLast = last(it2)
+			if tmpLast == nil {
+				if it2 == stopAt { return }
+				return it2
+			}
+			it2 = tmpLast
+		}		
+	}	
+
+	expose nextOrForward = func it, stopAt {  // old name: nextOrAfterNext
+
+		// same as forward w skipSubnodes = 1?
+		forward(it, stopAt, true)
+
+		// tmp = nextNode(it)
+		// if tmp { return tmp }
+		// return forward(deepestLast(it), stopAt)
+	}
+}
+
+*/
+
+if false {
+
+	nsTreeParent        = func it, stopAt { tree.parent(it) }
+	nsTreeForward       = func it, stopAt { tree.forward (it, stopAt) }
+    nsTreeBackward      = func it, stopAt { tree.backward(it, stopAt) }
+	nsTreeDeepestLast   = func it, stopAt { tree.deepestLast(it, stopAt) }
+	nsTreeNextOrForward = func it, stopAt { tree.nextOrForward(it, stopAt) }	
+
+} else {
+
+	// nsTree* : tree traverse, but stop at boundries of .hideFromNameSpace
+
+	nsTreePrev = func it, stopAt {
+		it = tree.prev(it)
+		while it and it.hideFromNameSpace {
+			if it == stopAt { return }
+			it = tree.prev(it)
+		}
+		return it
+	}
+
+	nsTreeNext = func it, stopAt {
+		it = tree.next(it)
+		while it and it.hideFromNameSpace {
+			if it == stopAt { return }
+			it = tree.next(it)
+		}
+		return it
+	}
+
+	nsTreeParent = func it, stopAt {
+		it = it.parent
+		while it and it.hideFromNameSpace {
+			if it == stopAt { return }
+			it = it.parent
+		}
+		return it
+	}
+
+	nsTreeLast = func it, stopAt {
+		it = tree.last(it)
+		while it and it.hideFromNameSpace {
+			if it == stopAt { return }
+			it = tree.prev(it)
+		}
+		return it
+	}
+
+	nsTreeForward = func it, stopAt, skipSubnodes {
+		//if it == stopAt {
+		//	return
+		//}
+		while it.hideFromNameSpace {
+			it = tree.nextOrForward(it, stopAt, true)
+		}
+		it = tree.forward(it, stopAt, skipSubnodes)
+		while it and it.hideFromNameSpace {
+			it = tree.nextOrForward(it, stopAt, true)
+		}
+		if it == stopAt {
+			return
+		}
+		return it
+	}
+
+    nsTreeBackward = func it, stopAt {
+		if it.parent == nil { return } // reached the start of the tree
+		it2 = nsTreePrev(it, stopAt)
+		assert(it2 == nil or not it2.hideFromNameSpace)
+
+		if it2 == nil {
+			// it2 = it.parent // allow namespace-leak through parent, todo, create def-instances not where they are called but just after def? would give closure-like features?
+			it2 = nsTreeParent(it, stopAt)
+			return it2 != stopAt ? it2 : nil
+		}
+		while true {
+			tmpLast = nsTreeLast(it2, stopAt)
+			assert(tmpLast == nil or not tmpLast.hideFromNameSpace)
+			if tmpLast == nil {
+				if it2 == stopAt { return }
+				return it2
+			}
+			it2 = tmpLast
+		}		
+	}
+
+	nsTreeDeepestLast = func it, stopAt {
+		prevIt = nil
+		while it {
+			prevIt = it
+			it = nsTreeLast(it, stopAt)
+		}
+		prevIt
+	}
+
+	nsTreeNextOrForward = func it, stopAt {
+		nsTreeForward(it, stopAt, true)
+		
+	//	tmp = nsTreeNext(it, stopAt)
+	//	if tmp { return tmp }
+	//	tmp = nsTreeDeepestLast(it, stopAt)
+	//	return tmp == nil ? nil : nsTreeForward(tmp, stopAt)
+	}
+
+	//nsTreeParent        = func it, stopAt { tree.parent(it) }
+	//nsTreeForward       = func it, stopAt { tree.forward (it, stopAt) }
+    //nsTreeBackward      = func it, stopAt { tree.backward(it, stopAt) }
+	//nsTreeDeepestLast   = func it, stopAt { tree.deepestLast(it, stopAt) }
+	//nsTreeNextOrForward = func it, stopAt { tree.nextOrForward(it, stopAt) }	
+}
+
+
+
+
 
 nameSpaceFind = func ns, token {
 	trace(spine, 'nameSpaceFind '..token)
 	ret = nil
 	it = ns
 	while it {
-		trace(spine, 'nameSpaceFind '..token..' '..it.codeTree.lineId..' '..toStr(getKeys(it.nameSpaceRead), 30)..'  '..toStr(getKeys(it.nameSpaceWrite), 30))
+		trace(spine, 'nameSpaceFind '..token..' '..(it.blockId or 'noId')..' '..it.codeTree.lineId..' '..toStr(getKeys(it.nameSpaceRead), 30)..'  '..toStr(getKeys(it.nameSpaceWrite), 30))
 		ret = block_getNameSpaceLink(it, token)
 		if ret { break }
-		it = tree.backward(it)
+
+		it = nsTreeBackward(it)
 	}
 	if ret {
 		// make sure the ret is within scope
@@ -798,18 +1025,18 @@ nameSpaceFind = func ns, token {
 		} else if it == nil {
 			print('nameSpaceFind() it nil '..toStr(ret))
 		} else {
-			parentScopeNs = ret.useSubTreeScope ? ret.firstIntroduction[0] : tree.parent(ret.firstIntroduction[0])
+			parentScopeNs = ret.useSubTreeScope ? ret.firstIntroduction[0] : nsTreeParent(ret.firstIntroduction[0])
 			if parentScopeNs == nil {
 				trace(spine, '   found global')
 				return ret
 			}
-			it = tree.parent(ns)
+			it = nsTreeParent(ns)
 			while it {
 				if parentScopeNs == it {
 	                trace(spine, '   found')
 					return ret
 				}
-				it = tree.parent(it)
+				it = nsTreeParent(it)
 			}		
 		}
 	}
@@ -831,7 +1058,7 @@ hookNameSpaceItem = func item, sourceRv {
 			dstV = get(item.dest)
 			if srcV != dstV {
 				trace(spine, 'nameSpaceListener REV '..toStr(srcV,40)..' = '..toStr(dstV,40))
-				set(sourceRv, get(item.dest))			
+				set(sourceRv, get(item.dest))	// add 'read-only' option to disable reverse flow? 
 			}
 		})						
 	} else {
@@ -884,7 +1111,8 @@ spineBlock_nameSpaceWrite = func ns, token, rv, useSubTreeScope {
 	stopAt = nil
 
 	if useSubTreeScope {
-		stopAt = tree.nextOrAfterNext(ns)
+		stopAt = nsTreeNextOrForward(ns)
+		trace(spine, 'nameSpaceWrite stopAt '..(stopAt and stopAt.blockId or 'noId'))
 	} else {
 		prevRv = nameSpaceFind(ns, token)
 		if prevRv {
@@ -895,8 +1123,8 @@ spineBlock_nameSpaceWrite = func ns, token, rv, useSubTreeScope {
 		if rv == nil and definedAt == ns {
 			firstIntroduction = nil
 		}
-		tmp    =         tree.parent(definedAt)
-		stopAt = tmp and tree.nextOrAfterNext(tmp)
+		tmp    =         nsTreeParent(definedAt)
+		stopAt = tmp and nsTreeNextOrForward(tmp)
 	}
 
 
@@ -913,9 +1141,10 @@ spineBlock_nameSpaceWrite = func ns, token, rv, useSubTreeScope {
 				nextWriteRv = it.nameSpaceWrite[token]
 				firstIntroduction = nextWriteRv.firstIntroduction
 				assert(firstIntroduction)
+				// trace(spine, 'nameSpaceWrite firstIntroduction swap: '..firstIntroduction[0].blockId..' -> '..ns.blockId)
 				firstIntroduction[0] = ns // replace firstIntroduction (the array is used as a shared reference) 
 			}
-			it = tree.forward(it, stopAt)
+			it = tree.forward(it, stopAt)// nsTreeForward(it, stopAt)
 		}
 
 
@@ -930,7 +1159,7 @@ spineBlock_nameSpaceWrite = func ns, token, rv, useSubTreeScope {
 	rv.useSubTreeScope = useSubTreeScope if rv
 
 
-	it = tree.forward(ns, stopAt)
+	it = tree.forward(ns, stopAt)//  nsTreeForward(ns, stopAt)
 	while it {
 		trace(spine, 'spineBlock_nameSpaceWrite sendevents '..token..' ... '..it.codeTree.lineId..' '..toStr(getKeys(it.nameSpaceRead), 30)..'  '..toStr(getKeys(it.nameSpaceWrite), 30))
 		if it.nameSpaceRead and it.nameSpaceRead[token] != nil {
@@ -941,8 +1170,8 @@ spineBlock_nameSpaceWrite = func ns, token, rv, useSubTreeScope {
 				nextWriteNs = it
 
 				// look for name space reads that has source == nil for this depth 	
-				it = useSubTreeScope ? ns : tree.parent(ns)
-				it = tree.deepestLast(it)
+				it = useSubTreeScope ? ns : nsTreeParent(ns)
+				it = nsTreeDeepestLast(it)
 				foundNilReads = []
 				foundSource = nil
 				while it and it != nextWriteNs {
@@ -956,7 +1185,7 @@ spineBlock_nameSpaceWrite = func ns, token, rv, useSubTreeScope {
 					if it.nameSpaceWrite and it.nameSpaceWrite[token] {
 						foundSource = it.nameSpaceWrite[token]
 					}
-					it = tree.backward(it)
+					it = nsTreeBackward(it)
 				}
 				for i * len(foundNilReads) {
 					rehookReadTokenBinding(foundNilReads[i], token, foundSource or rv)
@@ -964,7 +1193,7 @@ spineBlock_nameSpaceWrite = func ns, token, rv, useSubTreeScope {
 			}
 			return
 		}
-		it = tree.forward(it, stopAt)
+		it = tree.forward(it, stopAt)//  nsTreeForward(it, stopAt)
 	}
 
 
@@ -980,8 +1209,8 @@ api spineBlock_nameSpaceWriteObj = func ns, token, rv, useSubTreeScope {
 			}
 			if rv.firstIntroduction and rv.firstIntroduction[0] == ns {
 				spineBlock_nameSpaceWrite(ns, token, nil, useSubTreeScope)
-			} else {
-				it = tree.backward(ns)
+			} else {			
+				it = nsTreeBackward(ns)
 				prevRv = nameSpaceFind(it, token)	
 
 				// assert(prevRv, '!=', nil)   // this happens with for nested loops
@@ -990,10 +1219,12 @@ api spineBlock_nameSpaceWriteObj = func ns, token, rv, useSubTreeScope {
 					return
 				}
 
-				tmp    =         tree.parent(ns)
-				stopAt = tmp and tree.nextOrAfterNext(tmp)
+				assert(rv.firstIntroduction and rv.firstIntroduction[0] != nil)
+				stopAt = rv.firstIntroduction[0]			
+
+				ns.nameSpaceWrite[token] = nil
+
 				it = ns				
-				it.nameSpaceWrite[token] = nil
 				while it {
 					trace(spine, 'spineBlock_nameSpaceWriteObj removed, rehook '..token..' ... '..it.codeTree.lineId..' '..toStr(getKeys(it.nameSpaceRead), 30)..'  '..toStr(getKeys(it.nameSpaceWrite), 30))
 					if it.nameSpaceRead and it.nameSpaceRead[token] != nil {
@@ -1002,8 +1233,8 @@ api spineBlock_nameSpaceWriteObj = func ns, token, rv, useSubTreeScope {
 					if it.nameSpaceWrite and it.nameSpaceWrite[token] != nil {
 						break
 					}
-					it = tree.forward(it, stopAt)
-				}
+					it = tree.forward(it, stopAt)// nsTreeForward(it, stopAt)
+				}		
 			}
 		}
 	}
@@ -1128,7 +1359,7 @@ api spineBlock_createReactiveExpression = func ns, codeTree {
 	  getContext = func { this }
 
 	  blockIdCounter = 1000
-	  expose createBlock = func consts, codeTree, parentExpr, prevExpr {
+	  expose createBlock = func consts, codeTree, parentExpr, prevExpr, debugName {
 	    expr = { codeTree = codeTree, consts = consts, getContext = getContext, blockId = blockIdCounter }
 	    trace(spine, 'BLOCK CREATE '..blockIdCounter..' '..(codeTree ? codeTree.lineId : 'no codeTree'))
 	    blockIdCounter = blockIdCounter + 1
@@ -1138,7 +1369,7 @@ api spineBlock_createReactiveExpression = func ns, codeTree {
 	    else        { tree.insertFirst(parentExpr, expr) }
 
 	    if codeTree { expr.reactiveHandle = spineBlock_createReactiveExpression(expr, codeTree) }
-	    else { expr.codeTree = { lineId = 'hardLine' } }
+	    else { expr.codeTree = { lineId = debugName or 'hardLine' } }
 
 	    expr.remove = func {
 	      expr.__debug_BLOCKREMOVE = 'during' 
@@ -1292,7 +1523,11 @@ api spineBlock_createReactiveExpression = func ns, codeTree {
 				prevConsts = sharedConstantsPerLine[id]
 
 				exprHandle = (overrideFunc or createBlocksFromCodeTreeArray) (id, res.codeTreeArray, parentExpr, tmpPrevExpr)
-				out.expressions = exprHandle.expressions
+				if exprHandle {
+					out.expressions = exprHandle.expressions
+				} else {
+					print('No exprHandle: '..id..' '..(overrideFunc == nil))
+				}
 			}
 		})
 		out.remove = func { remove(textHook) ; remove(exprHandle) ; exprHandle = nil }
@@ -1640,49 +1875,55 @@ api spine_createRaConnection = func ctx, rvToRa, token, options, changedCallback
  //                               pos            0,1  
 
 
-api spine_createVec2Conn = func rvToRa, token, options, changedCallback {
+api spine_createVec2ConnObj = func token_or_rv, options, changedCallback {
+	token = type(token_or_rv) == 'string' ? token_or_rv : nil
 	x = nil
 	y = nil
 	rvX = nil
 	rvY = nil
-	hRa = nil
 	hRvX = nil
 	hRvY = nil
 	xHook = nil
 	yHook = nil
 	ctx = createHookContext()
+	item = nil
 	item = {
+		ctx = ctx
+		sameWriter = func writer { rvX==nil or rvY==nil ? false : rvX.lastWriter == writer and rvY.lastWriter == writer }
 		get = func { rvX==nil or rvY==nil? (options.def != nil ? options.def : [0,0]) : [get(rvX), get(rvY)] }
-		set = func v {
+		set = func v, writer {
 			if rvX == nil {
-				if hRa and hRa.currentReactiveArray and raGet(hRa.currentReactiveArray, token) == nil {
+				if token {
+					if item.hRa and item.hRa.currentReactiveArray and raGet(item.hRa.currentReactiveArray, token) == nil {
 
-					// "create-on-write"
-					// inject missing value into reactive array (can flow to source code)
+						// "create-on-write"
+						// inject missing value into reactive array (can flow to source code)
 
-					x = v[0]
-					y = v[1]
-					newRa = raCreate()
-					raInsert(newRa, 0, create(x))
-					raInsert(newRa, 1, create(y))
-					raInsert(hRa.currentReactiveArray, token, create(newRa))
-					// print('in spine_createVec2Conn') 
-				} else {
-					print('error spine_createVec2Conn 1')
+						x = v[0]
+						y = v[1]
+						newRa = raCreate()
+						raInsert(newRa, 0, create(x))
+						raInsert(newRa, 1, create(y))
+						raInsert(item.hRa.currentReactiveArray, token, create(newRa))
+						// print('in spine_createVec2Conn') 
+					} else {
+						print('error spine_createVec2Conn 1 ')
+					}
 				}
 			} else {
 				x = v[0]
 				y = v[1]
-				set(rvX, x)
-				set(rvY, y)	
+				set(rvX, x, writer)
+				set(rvY, y, writer)	
 			}
 		}
-		remove = func { remove(hRvX) ; remove(hRvY) ; remove(hRa) ; remove(ctx) ;  }
+		remove = func { remove(hRvX) ; remove(hRvY) ; remove(item.hRa) ; remove(ctx) ;  }
 	}
 
 	// print("spine_createVec2Conn root "..token) // debug spine_createVec2Conn issue
 	
-	hRa = spine_createRaConnection(ctx, rvToRa, token, options, func newRv {
+	// hRa = spine_createRaConnection(ctx, rvToRa, token, options, func newRv {
+	item.relinkReactiveValue = func newRv {
 
 		// print("spine_createVec2Conn "..token..' '..newRv) // debug spine_createVec2Conn issue
 
@@ -1716,13 +1957,24 @@ api spine_createVec2Conn = func rvToRa, token, options, changedCallback {
 				}, true)
 			}
 		})
-	})
+	} //)
 
-	if rvX == nil {
-		changedCallback(item)
+	//if rvX == nil {
+	//	changedCallback(item)
+	//}
+
+	if type(token_or_rv) == 'table' and token_or_rv.___class == 'reactiveValue' {
+		item.relinkReactiveValue(token_or_rv)
 	}
 
 	item
+}
+
+api spine_createVec2Conn = func rvToRa, token, options, changedCallback {
+	item = spine_createVec2ConnObj(token, options, changedCallback)
+	item.hRa = spine_createRaConnection(item.ctx, rvToRa, token, options, item.relinkReactiveValue)
+	changedCallback(item)
+	return item
 }
 
 #####
@@ -2102,15 +2354,34 @@ api spineComp_createIt = func ns, args, returnVal {
 
 #####
 
-api spineComp_createDef = func _ns, _args, _returnVal {
+
+api spineComp_def = func _ns, _args, _returnVal {
 	set(_returnVal, {
 		___functor = func ns, args, returnVal {
 			trace(spine, 'Instantiate definition')
-			ns.defReturnVal = returnVal
 			handle = nil
 			argRaHook = nil
+			instanceRoot = nil
 			ctx = createHookContext()
 			if _ns {
+				sctx = _ns.getContext()
+
+
+				// print(ns.codeTree.lineId)
+				//print(''..ns.blockId)
+				//if ns.blockId == 1009 {
+				//	tmpit = ns
+				//	tmpit = nsTreeBackward(tmpit)
+				//	print('--- '..tmpit.blockId)
+				//	//tmpit = nsTreeBackward(tmpit) ; print('--- '..tmpit.blockId)
+				//	//tmpit = nsTreeBackward(tmpit) ; print('--- '..tmpit.blockId)
+				//	//tmpit = nsTreeBackward(tmpit) ; print('--- '..tmpit.blockId)
+				//}
+
+				rootWrap = sctx.createBlock(nil, nil, ns, nil, 'def_rootWrap')
+				rootWrap.hideFromNameSpace = true
+				instanceRoot = sctx.createBlock(nil, nil, rootWrap, nil, 'def_instanceRoot')
+				instanceRoot.defReturnVal = returnVal 
 
 				hook(ctx, args, func {
 					raArgs = get(args)
@@ -2118,17 +2389,22 @@ api spineComp_createDef = func _ns, _args, _returnVal {
 //					assert(raArgs.___class, '==', 'reactiveArray')
 					if raArgs.___class == 'reactiveArray' {
 						argRaHook = raForEach(raArgs, func key, val {
-							return spineBlock_nameSpaceWriteObj(ns, key, val, true)
+							return spineBlock_nameSpaceWriteObj(instanceRoot, key, val, true)
 						})					
 					}
 
 				}, true)
 
-				nsCtx = _ns.getContext()
-				handle = nsCtx.runSubLines(_ns, ns, func id, codeTreeArray, parentExpr, tmpPrevExpr {
-					trace(spine, 'Instantiate create subexpressions')
-					nsCtx.createBlocksFromCodeTreeArray(id, codeTreeArray, ns, tmpPrevExpr)
+				later(func{
+					handle = sctx.runSubLines(_ns, instanceRoot, func id, codeTreeArray, parentExpr, tmpPrevExpr {
+						trace(spine, 'def:Instantiate create subexpressions')
+						if ns.blockId == 1009 {
+							print('SILLL')
+						}
+						sctx.createBlocksFromCodeTreeArray(id, codeTreeArray, instanceRoot, tmpPrevExpr)
+					})
 				})
+
 
 			} else {
 				print('warning, try to instanciate removed definition')
@@ -2138,6 +2414,7 @@ api spineComp_createDef = func _ns, _args, _returnVal {
 				remove = func {
 					remove(handle)
 					remove(argRaHook)
+					remove(instanceRoot)					
 					remove(ctx)
 				}
 			}
@@ -2196,6 +2473,7 @@ api spineComp_if = func ns, args, returnVal {
 	v = spine_createValueConnection(args, 0, {def = uninitialized}, func v {
 		newBool = spineValToBool(v.get())
 		if curBool != newBool {
+			// print('if update '..curBool..' -> '..newBool..' val:'..v.get())
 			curBool = newBool
 			remove(handle)
 			handle = nil
@@ -2214,7 +2492,7 @@ api spineComp_if = func ns, args, returnVal {
 
 api spineComp_for = func ns, args, returnVal {
 
-	nsCtx = ns.getContext()
+	sctx = ns.getContext()
 
 	ctx = createHookContext()
 
@@ -2224,12 +2502,12 @@ api spineComp_for = func ns, args, returnVal {
 
 		return spine_hookResolveRa(ctx, rv, func itKey, itRv, itKeyPrev, itKeyNext {
 			trace(spine, 'for iterate '..key..' '..itKey..' prev:'..toStr(itKeyPrev)..' next:'..toStr(itKeyNext))
-			itRoot = nsCtx.createBlock(nil, nil, ns, itKeyPrev != nil and iterations[itKeyPrev])
+			itRoot = sctx.createBlock(nil, nil, ns, itKeyPrev != nil and iterations[itKeyPrev])
 			nsObj = spineBlock_nameSpaceWriteObj(itRoot, key, itRv, true)
 			iterations[itKey] = itRoot
 
-			handle = nsCtx.runSubLines(ns, ns, func id, codeTreeArray, parentExpr, tmpPrevExpr {
-				return nsCtx.createBlocksFromCodeTreeArray(id, codeTreeArray, itRoot, tmpPrevExpr)
+			handle = sctx.runSubLines(ns, ns, func id, codeTreeArray, parentExpr, tmpPrevExpr {
+				return sctx.createBlocksFromCodeTreeArray(id, codeTreeArray, itRoot, tmpPrevExpr)
 			})	
 
 			removeIteration = func {
@@ -2803,7 +3081,7 @@ api spineComp_createSmooth = func reverseAlt {
 	itemCallback = reverseAlt ? nil : func id, item {
 		val = get(item.rvDst)
 		if val != curVals[id] {
-			print('sill '..id)
+			// print('sill '..id)
 			dstChangeVals[id] = val
 			set(item.rvDst, curVals[id])
 		}
@@ -2880,6 +3158,106 @@ api spineComp_createSmooth = func reverseAlt {
 		remove = func { remove(intervalHandle) ; remove(amt) ; remove(inp) }
 	}*/
 }
+}
+
+#####
+
+rotate_inner = func p,a {
+	// a = a * pi / 180
+	return [p[0] * cos(a) - p[1] * sin(a), 
+			p[0] * sin(a) + p[1] * cos(a)]
+}
+
+api spineComp_rotate = func ns, args, returnVal {
+
+	raReturn = raCreate()
+	raInsert(raReturn, 0, create(uninitialized))
+	raInsert(raReturn, 1, create(uninitialized))
+	set(returnVal, raReturn)
+
+	p = nil ; a = nil ; r = nil
+
+	rotate_forward = func {
+		if r and a and p {
+			vp = p.get()
+			va = a.get()
+			if isFiniteNumber(vp[0]) and isFiniteNumber(vp[1]) and isFiniteNumber(va) {
+				r.set(rotate_inner(vp, va), r)
+			} 
+		}
+	}
+
+	rotate_backward = func {
+		if r and a and p {
+			if r.sameWriter(r) {
+				print("rotate_backward same")
+				return
+			}
+			vr = r.get()
+			va = a.get()
+			if isFiniteNumber(vr[0]) and isFiniteNumber(vr[1]) and isFiniteNumber(va) {
+				p.set(rotate_inner(vr, -va))
+			} 
+		}
+	}
+
+	p  = spine_createVec2Conn       (args, 0  , {def = [uninitialized, uninitialized]}, rotate_forward)
+	a  = spine_createValueConnection(args, 1  , {def = uninitialized                 }, rotate_forward)
+	r  = spine_createVec2ConnObj    (returnVal, {def = [uninitialized, uninitialized]}, rotate_backward)
+
+	rotate_forward()
+
+	return {
+		remove = func { remove(p) ; remove(a) ; remove(r) }
+	}
+}
+
+#####
+
+api toPolar   = func v { [ sqrt( v[0]*v[0] + v[1]*v[1] ) , atan2(v[1],v[0]) ]}
+api fromPolar = func v { [ v[0]*cos(v[1]), v[0]*sin(v[1]) ] }
+
+api spine_vec2_vec2_wrap = func inner_forward, inner_backward {
+	func ns, args, returnVal {
+
+		raReturn = raCreate()
+		raInsert(raReturn, 0, create(uninitialized))
+		raInsert(raReturn, 1, create(uninitialized))
+		set(returnVal, raReturn)
+
+		p = nil ; r = nil
+
+		vec2_vec2_forward = func {
+			if r and p {
+				vp = p.get()
+				if isFiniteNumber(vp[0]) and isFiniteNumber(vp[1]) {
+					r.set(inner_forward(vp), r)
+				} 
+			}
+		}
+
+		vec2_vec2_backward = func {
+			if r and p {
+				if r.sameWriter(r) {
+					print("spine_vec2_vec2_wrap same")
+					return
+				}
+				vr = r.get()
+				if isFiniteNumber(vr[0]) and isFiniteNumber(vr[1]) {
+					p.set(inner_backward(vr))
+				} 
+			}
+		}
+
+		p  = spine_createVec2Conn       (args, 0  , {def = [uninitialized, uninitialized]}, vec2_vec2_forward)
+		r  = spine_createVec2ConnObj    (returnVal, {def = [uninitialized, uninitialized]}, vec2_vec2_backward)
+
+		vec2_vec2_forward()
+
+		return {
+			remove = func { remove(p) ; remove(r) }
+		}
+	}
 }
 
 #####
@@ -3116,7 +3494,7 @@ api spineComp_onAnim = func ns, args, returnVal {
 api spineComp_wrapSingleNumberArg = func innerFunc, defa {
 	return func ns, args, returnVal {
 		v = spine_createValueConnection(args, 0, {def = defa}, func v { 
-			set(returnVal, innerFunc(v.get()) )
+			set(returnVal, isFiniteNumber(v.get()) ? innerFunc(v.get()) : uninitialized )
 		})	
 		return {
 			remove = func { remove(v) }
@@ -3126,19 +3504,23 @@ api spineComp_wrapSingleNumberArg = func innerFunc, defa {
 
 #####
 
-api spineComp_wrapDoubleNumberArg = func innerFunc {
+api spineComp_wrapDoubleNumberArg = func innerFunc, def0, def1 {
 	return func ns, args, returnVal {
-		#{ js debugger #}
-
 		v0 = nil
 		v1 = nil
 		updateF = func {
 			if v0 and v1 {
-				set(returnVal, innerFunc(v0.get(), v1.get()) )	
+				val0 = v0.get()
+				val1 = v1.get()
+				if isFiniteNumber(val0) and isFiniteNumber(val1) {
+					set(returnVal, innerFunc(v0.get(), v1.get()) )	
+				} else {
+					set(returnVal, uninitialized)
+				}
 			}
 		}
-		v0 = spine_createValueConnection(args, 0, {def = 0}, updateF)	
-		v1 = spine_createValueConnection(args, 1, {def = 0}, updateF)
+		v0 = spine_createValueConnection(args, 0, {def = def0}, updateF)	
+		v1 = spine_createValueConnection(args, 1, {def = def1}, updateF)
 		updateF()	
 		return {
 			remove = func { remove(v0) ; remove(v1)  }
@@ -3201,19 +3583,23 @@ api createSpineApp = func options {
 
 	tree = createTreeApi()
 
-	codeWindowSize = {w:1000, h:300} // note: w is replaced with current width in pageSize hook
-	textErr = nil
+	codeWindowSize = {w:600, h:300} // note: w is replaced with current width in pageSize hook
+	textDebug = nil
 	margin = 10
 
 	codeInput   = wrapSetToModel(gHookContext,  {text = options.code or '\n\nrun\n\n', rect = [0, 0, codeWindowSize.w - margin, codeWindowSize.h - margin] }, createTextInput)
-	if options.debug {
-		textErr = wrapSetToModel(gHookContext,  {text = '', rect = [codeWindowSize.w, 0, codeWindowSize.w - margin, codeWindowSize.h - margin] }, createTextInput)
+	
+	if options.debug or uriToTable(getURLQueryString()).debug {
+		textDebug = wrapSetToModel(gHookContext,  {fontSize = "8px", text = '', rect = [codeWindowSize.w, 0, codeWindowSize.w - margin, codeWindowSize.h * 2 - margin] }, createTextInput)
 	}
 
 	if options.pageSize {
 		hook(gHookContext, options.pageSize, func {
 			wh = get(options.pageSize)
 			set(codeInput.rect, [0, 0, wh[0], codeWindowSize[1]]) 
+			if textDebug {
+				//set(textDebug.rect, [codeWindowSize.w, 0, wh[0] - codeWindowSize.w, codeWindowSize[1] * 2]) 
+			}
 		}, true)
 	}
 
@@ -3269,7 +3655,7 @@ api createSpineApp = func options {
 
 	codeCtx.setInstanceRoot('run', nil, func newRootObj {
 		globs = injectComponents(newRootObj.rootExpression, {
-			def       = spineComp_createDef
+			def       = spineComp_def
 			return    = spineComp_return
 			for       = spineComp_for
 			if        = spineComp_if 
@@ -3290,8 +3676,11 @@ api createSpineApp = func options {
 			abs       = spineComp_wrapSingleNumberArg(abs, uninitialized)
 			sin       = spineComp_wrapSingleNumberArg(sin, uninitialized)
 			cos       = spineComp_wrapSingleNumberArg(cos, uninitialized)
-			pow       = spineComp_wrapDoubleNumberArg(pow)
-			atan2     = spineComp_wrapDoubleNumberArg(atan2)
+			pow       = spineComp_wrapDoubleNumberArg(pow, uninitialized, uninitialized)
+			atan2     = spineComp_wrapDoubleNumberArg(atan2, uninitialized, uninitialized)
+			rotate    = spineComp_rotate
+			toPolar   = spine_vec2_vec2_wrap(toPolar, fromPolar)
+			fromPolar = spine_vec2_vec2_wrap(fromPolar, toPolar)
 			// delta     = spineComp_delta
 			integrate = spineComp_integrate
 			// integral  = spineComp_integral
@@ -3325,7 +3714,7 @@ api createSpineApp = func options {
 				// print('db: ' .. codeDb.getEntireDbAsJsonText())	
 			}
 
-			if textErr and runRoot {
+			if textDebug and runRoot {
 				remove(lastFeedbackDelay)
 				lastFeedbackDelay = delay(0.2, func {
 					lastFeedbackDelay = nil
@@ -3338,7 +3727,9 @@ api createSpineApp = func options {
 						data = codeDb.get(id)
 						datStr = data == nil ? '       ' : (data.dat == '' or data.dat == nil ? toStr(data) : getTokenRange(data.dat, ct.beginPos, ct.endPos) )
 						str = str .. '\n' .. rep(' ',tree.depth(it)) .. it.blockId .. ' ' .. datStr
-						str = str .. (it.reactiveHandle and it.reactiveHandle.rv != nil ? '    == ' .. toStr(get(it.reactiveHandle.rv), 25) : '')
+						str = str .. (it.reactiveHandle and it.reactiveHandle.rv != nil and get(it.reactiveHandle.rv) != uninitialized ? '    == ' .. toStr(get(it.reactiveHandle.rv), 25) : '')
+						str = str .. (it.hideFromNameSpace ? ' HIDE' : '     ')
+						
 						if it.nameSpaceRead  { str = str .. '   Read:' .. fold(func cur, v, k { cur..' '..k..':'..(v.source ? v.source.id : 'nil') }, '', it.nameSpaceRead ) }
 						//if it.nameSpaceWrite { str = str .. '   Write:' .. fold(func cur, v, k { cur..' '..k}, '', it.nameSpaceWrite) }
 						if it.nameSpaceWrite { str = str .. '   Write:' .. fold(func cur, v, k { cur..' '..k..':'..v.id..'='..toStr(get(v),4) }, '', it.nameSpaceWrite) }
@@ -3357,7 +3748,7 @@ api createSpineApp = func options {
 						it = tree.forward(it)
 					}
 					
-					set(textErr.text, str)		
+					set(textDebug.text, str)		
 				})		
 			}
 		})

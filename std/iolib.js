@@ -297,7 +297,10 @@
 			}				
 		}
 		var lastColor;    
-		var setColor          = function(c) { if(c != lastColor)    { onChange('color',          c) }  tarea.style.color = c }
+		var setColor    = function(c) { if(c != lastColor)    { lastColor = c    ; onChange('color',    c) } tarea.style.color = c }
+		var lastFontSize = 16
+		var setFontSize = function(s) { if(s != lastFontSize) { lastFontSize = s ; onChange('fontSize', s) } tarea.style.fontSize = s }
+		var getFontSize = function()  { return lastFontSize }
 
 //		setting selectionStart / selectionEnd in chrome, sets the focus of that edit component, but not in FF, in IE one need to use another API
 //  
@@ -313,6 +316,8 @@
 			setText : setText,
 			setRect : setRect,
 			setColor : setColor,
+			setFontSize : setFontSize,
+			getFontSize : getFontSize,
 //			setSelectionStart : setSelectionStart,
 //			setSelectionEnd : setSelectionEnd,
 //			getText : function(t) { return tarea.value },  minimize: only design for onChange
