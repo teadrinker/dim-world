@@ -4829,8 +4829,8 @@ dw_g_app_main = function() {''']
 			{type = 'mkdir', targetRelDir = '' }
 			{type = 'file', sourceRelDir = 'index.html', transforms = [['<!-- app main script here -->', '<script src="dw_app_main.js"></script>']]} 
 			{type = 'file', sourceRelDir = 'dw_runtime.js'}
-			{type = 'file', sourceRelDir = 'dw_io_simple.js'}
-			{type = 'file', sourceRelDir = 'dw_boot.js'}
+		//	{type = 'file', sourceRelDir = 'dw_io_simple.js'} // moved to dw_runtime.js
+		//	{type = 'file', sourceRelDir = 'dw_boot.js'}      // moved to dw_runtime.js
 			{type = 'file', sourceData = compiled, targetRelDir = 'dw_app_main.js'}
 		]
 
