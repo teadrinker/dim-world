@@ -2,32 +2,41 @@
 
 
 gGui = nil
-
+api valueToColor = func v { type(v) == 'string' ? v : '#'..grayToHex(v) }
 
 #####
 
 api spineComp_createUiContext = func ns, args, returnVal, rootCtx {
+	isRootContext = ns == nil
 	obj = createComposite()
-	drawContext = gGui.createLocalDrawContext()
+	drawContext = (isRootContext ?
+	         gGui.getRootDrawContext() : 
+			 gGui.createLocalDrawContext(gGui.getRootDrawContext())) // note: need namespace search to support more than 1 level, but code not used anyway
 	wrapObj = { ___class = 'uiContext', drawContext = drawContext }
-	if ns == nil {
+	if isRootContext {
 		return wrapObj
 	} 
 
+	// untested / unfinished
 	rv = create(wrapObj)
 	obj.add(spineBlock_nameSpaceWriteObj(ns, 'currentUiContext', rv, true))
 	obj.add(ns.getContext().runSubLines(ns,ns))
 	return obj
 }
 
+
+
 #####
 
 
 // a lot of duplicated code, solutions:
 //    option 1: wrap coordCtx creation + bindUpdateFunction into a new wrapper? (+ separate solution for drag)
-//    option 2: put shared code in createDraggableUiElement() - might grow to something ugly over time, I prefer 1...
+//    option 2: use createUIElement?
+//    option 3: we might want to make direct manipulation a more explicit thing in the system (with its own new api)
 
-api spineComp_createUiPoint = func ns, args, returnVal {
+api spineComp_createUiPoint = func defRadius {
+
+func ns, args, returnVal {
 	_this = {}
 
 	trace(spine, 'uiPoint created')
@@ -49,15 +58,24 @@ api spineComp_createUiPoint = func ns, args, returnVal {
 		}
 	}, true)
 
-
-
 	inputHandle = gGui.inputAddDragListener(_this)
 	
 	ppos = [0,0]
+
 	posInputValid = false
 	lastDragMyPosIS = nil
-	lastDragInputIS = nil
+	lastDragInputIS = nil	
 	dragging = false
+	posIS = [0,0]
+	validateISCoord = func { posIS = coordCtx.toInput (ppos) ; posInputValid = true } 
+	radIS = 0
+	radISAndFuzzSq = 0
+	inputTest = func id, pos {
+		if not dragging {
+			if not posInputValid { validateISCoord() }
+			return inputHitTestPointToPoint(pos, posIS, radISAndFuzzSq, radIS)
+		}
+	}
 
 	drag = create(false) // out
 
@@ -70,7 +88,9 @@ api spineComp_createUiPoint = func ns, args, returnVal {
 		drwLine.needDraw()
 	})
 
-	mRadius = spine_createValueConnection(args, 'radius', {def = 6}, func mRadius {
+	mRadius = spine_createValueConnection(args, 'radius', {def = defRadius}, func mRadius {
+		radIS = coordCtx.toInputScalar(mRadius.get())
+		radISAndFuzzSq = square(radIS + coordCtx.getInputFuzzMargin())
 		drwPoint.needDraw()
 		drwLine.needDraw()
 	})
@@ -100,24 +120,14 @@ api spineComp_createUiPoint = func ns, args, returnVal {
 		prevFrame = frameCount()
 	})	
 
-	posIS = [0,0]
-	validateISCoord = func { posIS = coordCtx.toInput (ppos) ; posInputValid = true } 
-
-	inputTest = func id, pos {
-		if not dragging {
-			if not posInputValid { validateISCoord() }
-			return inputHitTestPointToPoint(pos, posIS, square(coordCtx.getInputFuzzMargin()))
-		}
-	}
-
 	drawBindings = nil
 	if drwPoint {
 		drawBindings = coordCtx.bindUpdateFunction([drwPoint, drwLine], func {
 			dataPos = mPos.get()
 			rad = mRadius.get()
-			drwPoint.update('circle', {x = dataPos[0], y = dataPos[1], radius = rad * (dragging ? 1.8 : 1), col = mCol.get() })
+			drwPoint.update('circle', {x = dataPos[0], y = dataPos[1], radius = rad + (dragging ? min(4, 2 * rad) : 0), color = valueToColor(mCol.get()) })
 			drwLine.update('line', dragging ?
-				{x1 = ppos[0], y1 = ppos[1], x2=dataPos[0] , y2 = dataPos[1], col = mCol.get(), opacity = 0.5, width = rad } : nil)
+				{x1 = ppos[0], y1 = ppos[1], x2=dataPos[0] , y2 = dataPos[1], color = valueToColor(mCol.get()), opacity = 0.5, width = rad } : nil)
 		})	
 		drwPoint.needDraw()
 	}
@@ -132,7 +142,7 @@ api spineComp_createUiPoint = func ns, args, returnVal {
 
 			diffDragIS = v2sub(pos, lastDragInputIS)
 			diffMyIS = v2sub(posIS, lastDragMyPosIS)
-			ppos = v2add(ppos, coordCtx.fromInputScalar(v2sub(diffDragIS, diffMyIS)))
+			ppos = v2add(ppos, coordCtx.fromInputScaleOnly(v2sub(diffDragIS, diffMyIS)))
 			validateISCoord()
 			if drwPoint { drwPoint.needDraw() }
 			if dragging and drwLine { drwLine.needDraw() }
@@ -152,9 +162,10 @@ api spineComp_createUiPoint = func ns, args, returnVal {
 		remove(inputHandle)
 		remove(drawBindings) // this also removes the drawables
 	}
-	
 
 	return _this
+}
+
 }
 
 #####
@@ -227,7 +238,7 @@ api spineComp_createUiRect = func ns, args, returnVal {
 			drawBindings = coordCtx.bindUpdateFunction([drwRect], func {
 				tmpSize = mSize.get()
 				tmpPos = mPos.get()
-				drwRect.update('rect', {x = tmpPos[0], y = tmpPos[1], w=tmpSize[0], h=tmpSize[1], col = mCol.get() })
+				drwRect.update('rect', {x = tmpPos[0], y = tmpPos[1], w=tmpSize[0], h=tmpSize[1], color = valueToColor(mCol.get()) })
 			})	
 			drwRect.needDraw()
 
@@ -259,11 +270,14 @@ api spineComp_createUiRect = func ns, args, returnVal {
 		if      event == 'start' { ppos = mPos.get() ; posInputValid = false; dragging = true  ; set(drag, true) }
 		else if event == 'stop'  { ppos = mPos.get() ; posInputValid = false; dragging = false ; set(drag, false)}
 		else {
+
+
 			diffDragIS = v2sub(pos, lastDragInputIS)
 			diffMyIS = v2sub(posIS, lastDragMyPosIS)
-			ppos = v2add(ppos, coordCtx.fromInputScalar(v2sub(diffDragIS, diffMyIS)))
+			ppos = v2add(ppos, coordCtx.fromInputScaleOnly(v2sub(diffDragIS, diffMyIS)))
 			validateISCoord()
 			if drwRect { drwRect.needDraw() }
+
 //			set(rvPos, ppos)
 			mPos.set(ppos)
 		}
@@ -288,11 +302,26 @@ api spineComp_createUiRect = func ns, args, returnVal {
 
 #####
 
+api defaultBackgroundColor = '#333'
+
+api spineComp_background = func ns, args, returnVal {
+	set(returnVal, uninitialized)
+	handle = spine_createValueConnection(args, 0, {def = 0}, func v0 {
+		v = v0.get()
+		t = type(v)
+		gGui.setBackgroundColor(t == 'string' or t == 'number' ? valueToColor(v) : defaultBackgroundColor)	
+	})	
+	return { remove = func { remove(handle) ; gGui.setBackgroundColor(defaultBackgroundColor) }}
+}
+
+
+#####
 
 global projectTitle = 'Spine - Live Demo'
 
 guiContext = createGuiContext()
 gGui = createSimpleGuiSystem(guiContext.getBasicDraw())
+gGui.setBackgroundColor(defaultBackgroundColor)
 
 updateUiScale = func { gGui.setDPI(getSystemDPI()) }
 updateUiScale() 
@@ -305,16 +334,30 @@ guiContext.onResize(func {
 	gGui.draw()
 })
 
+urlConfig = uriToTable(getURLQueryString())
 
 createSpineApp({
+
+	debug           = urlConfig.debug == '1'
+	incremental     = urlConfig.incremental == nil ? true : urlConfig.incremental == '1'
+	hideCode        = urlConfig.hidecode == '1'
+	fontSize        = urlConfig.fontsize ? toNumber(urlConfig.fontsize) : nil
+	embed           = urlConfig.embed == '1'
+
 	code = '\n\nrun\n  point pos = [400, 400]'
 	pageSize = rvResize
-	isDragging = gGui.isDragging
+	paneBackground = draggableDividerAndBackground
+	isAnyDown = gGui.isAnyDown
 	onRun = func app, block {
 		guiComponents = app.injectComponents(block, {
 			uiContext        = spineComp_createUiContext
-			point            = spineComp_createUiPoint
+			point            = spineComp_createUiPoint(6)
+			circle           = spineComp_createUiPoint(50)
 			rect             = spineComp_createUiRect
+			background       = spineComp_background
+			rgb              = wrap4NumberToString(func x,y,z,w { '#'..rgbToHex(x,y,z,w) },[uninitialized, uninitialized, uninitialized, 1])
+			hsv              = wrap4NumberToString(func x,y,z,w { '#'..hsvToHex(x,y,z,w) },[uninitialized, 1, 1, 1])
+			hsl              = wrap4NumberToString(func x,y,z,w { '#'..hslToHex(x,y,z,w) },[uninitialized, 1, 0.5, 1])
 		})
 		guiComponents.add(spineBlock_nameSpaceWriteObj(block, 'currentUiContext', create(spineComp_createUiContext())))
 	}

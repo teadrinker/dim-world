@@ -144,18 +144,44 @@ if gParserContext != nil {
 	}
 #}
 
-
-#####   api pi = 3.141592653589793238462643383279502884197
-#####	api square = func x { x*x }
 #####
 
 api getKeys = func t { out = [] ; tt = type(t) ; if tt == 'table' or tt == 'array' { for k,v in t { push(out, k) } }  out }
 
 #####
 
-
-
 ////////////////////////////////////////////////////////// GENERIC
+
+        api pi = 3.141592653589793238462643383279502884197
+#####	api square = func x { x*x }
+#####   api mix = func a, b, t { a + t * (b - a) } 
+#####
+
+api linearstep = func a, b, x { 
+    if x<=a { return 0 }
+    if x>=b { return 1 }
+	return (x-a) / (b-a)
+}
+
+#####
+
+api smoothstep = func a, b, x  {  
+    if x<=a { return 0 }
+    if x>=b { return 1 }
+    x = (x-a) / (b-a)
+    return x*x*(3.0-2.0*x)
+}
+
+#####
+
+api smootherstep = func a, b, x { 
+    if x<=a { return 0; }
+    if x>=b { return 1; }
+    x = (x-a) / (b-a)
+    return x*x*x*(x*(x*6 - 15) + 10)
+}	
+
+#####
 
 // api empty = func o {
 // 	assert(type(o), '==', 'table')  // need array support?
@@ -4256,8 +4282,8 @@ function median(a) { if (!arguments || arguments.length == 0) return undefined;	
 	api wrapSetToModel = func hc, values, createFunc {
 		model = {}
 		interface = createFunc(values, func whatChanged, data {
-			m_ = model[whatChanged]
-			if m_ /*and compatible(m_)*/ { set(m_, data) }  // compatible is only needed if callback is called several times during init, and this should maybe be considered an error
+			rv = model[whatChanged]
+			if rv /*and compatible(rv)*/ { set(rv, data, model) }  // compatible is only needed if callback is called several times during init, and this should maybe be considered an error
 			else { model[whatChanged] = data }
 		})
 		for name, fun in interface {
@@ -4270,13 +4296,17 @@ function median(a) { if (!arguments || arguments.length == 0) return undefined;	
 				if ival == nil { throw('missing defaultvalue for '..attr) }
 				mval = create(ival)
 				model[attr] = mval
-				hook(hc, mval, func { fun(get(mval)) }, true)
+				hook(hc, mval, func { fun(get(mval), 'modelToApi') }, true)
 			}
 		}
 		model
 	}
 
 #####
+
+/*
+
+UNUSED ?
 
 api createUISystem = func bd, tree, uiRoot, wantDraw {
 
@@ -4287,6 +4317,7 @@ api createUISystem = func bd, tree, uiRoot, wantDraw {
 	}
 	uiDraw = func {
 		bd.fillColor('#000000')
+		bd.fillAlpha(1)
 		bd.fillRect(0,0,3000,3000)		
 		tree.traverse2(uiRoot,	func n { if n.element and n.element.draw        { n.element.draw()        } },
 								func n { if n.element and n.element.drawOverlay { n.element.drawOverlay() } })
@@ -4320,6 +4351,7 @@ api createUISystem = func bd, tree, uiRoot, wantDraw {
 		wantDraw = wantDraw
 	}
 }
+*/
 #####
 
 
@@ -5391,7 +5423,7 @@ api loadAndExecuteJavascript = func url, callback {
 					}
 
 			// we might want to use the _diff if database items are deep and big
-			// but if items are deep and big, notifications is not gonna work well anyway?
+			// but if items are deep and big, notifications are not gonna work well anyway?
 			//		cur = get(reactiveValues[key])
 			//		if type(cur) == 'table' {
 			//			applyDiffRec(cur, _diff)
@@ -5458,34 +5490,37 @@ api loadAndExecuteJavascript = func url, callback {
 
 
 
-api detectArrayChange = func oldA, a {
-       lenA = len(a)
-       lenOldA = len(oldA)
-       minLen = min(lenA, lenOldA)
-       for i * minLen {
-         if a[i] != oldA[i] {
-           for j * minLen {
-             if a[lenA-1-j] != oldA[lenOldA-1-j] {
-               newSize = lenA-j - i
-               oldSize = lenOldA-j - i
-               if newSize < 0 { oldSize = oldSize - newSize; newSize = 0 }
-               if oldSize < 0 { newSize = newSize - oldSize; oldSize = 0 }
-	           return { pos = i, oldSize = oldSize, newSize = newSize}
-             }
-           }
-           if lenA > lenOldA {
-             return { pos = i, oldSize = 0, newSize = lenA - lenOldA}
-           } else {
-             return { pos = i, oldSize = lenOldA - lenA, newSize = 0}
-           }
-         }
-       }
-       if lenA > lenOldA {
-         return { pos = minLen, oldSize = 0, newSize = lenA - lenOldA}
-       } else if lenA < lenOldA {
-          return { pos = lenA, oldSize = lenOldA - lenA, newSize = 0}      
-       }
-     }
+api detectArrayChange = func oldA, a, forceInvalidateAll {
+	lenA = len(a)
+	lenOldA = len(oldA)
+	if forceInvalidateAll {
+		return { pos = 0, oldSize = lenOldA, newSize = lenA}      
+	}
+	minLen = min(lenA, lenOldA)
+	for i * minLen {
+		if a[i] != oldA[i] {
+			for j * minLen {
+				if a[lenA-1-j] != oldA[lenOldA-1-j] {
+				newSize = lenA-j - i
+				oldSize = lenOldA-j - i
+				if newSize < 0 { oldSize = oldSize - newSize; newSize = 0 }
+				if oldSize < 0 { newSize = newSize - oldSize; oldSize = 0 }
+				return { pos = i, oldSize = oldSize, newSize = newSize}
+				}
+			}
+			if lenA > lenOldA {
+				return { pos = i, oldSize = 0, newSize = lenA - lenOldA}
+			} else {
+				return { pos = i, oldSize = lenOldA - lenA, newSize = 0}
+			}
+		}
+	}
+	if lenA > lenOldA {
+		return { pos = minLen, oldSize = 0, newSize = lenA - lenOldA}
+	} else if lenA < lenOldA {
+		return { pos = lenA, oldSize = lenOldA - lenA, newSize = 0}      
+	}
+}
 
 #####
 
@@ -5511,13 +5546,14 @@ nil
 
 #####
 
-api arrayChangeToEvents = func refA, oldA, newA, insertFunc, removeFunc, changeFunc, similarEnough {
-	diff = detectArrayChange(oldA, newA)
+api arrayChangeToEvents = func refA, oldA, newA, insertFunc, removeFunc, changeFunc, similarEnough, forceInvalidateAll {
+	diff = detectArrayChange(oldA, newA, forceInvalidateAll)
 	if diff {
 		offs = diff.pos
-		if similarEnough {
-			potentialChangeCount = min(diff.oldSize, diff.newSize)
+		potentialChangeCount = 0
+		if similarEnough and not forceInvalidateAll {
 	//		print(toStr({diff=diff,ol=oldA,ne=newA}))
+			potentialChangeCount = min(diff.oldSize, diff.newSize)
 			for ii * potentialChangeCount {
 				i = offs == 0 ? potentialChangeCount - 1 - ii : offs + ii  // iterate backwards if offs == 0, to aid ordering
 				if similarEnough(newA[i], oldA[i]) {
@@ -5607,6 +5643,7 @@ api setupTextToDbSync = class rvText, codeDb, settings {
 	idToIndent = {}
 
 	debugCounter = 100
+	prevCodeText = ''
 
 	expose syncNow = func {
 
@@ -5615,7 +5652,9 @@ api setupTextToDbSync = class rvText, codeDb, settings {
 		firstChangeOldInd = nil
 		firstChangeKey = nil
 		noStructuralChange = true
-		rows = split(get(rvText), '\n')
+		newCodeText = get(rvText)
+		forceInvalidateAll = settings.forceInvalidateAll and newCodeText != prevCodeText
+		rows = split(newCodeText, '\n')
 		dbDiff = {}
 		inserted = func i, srPrev, srNext {
 			noStructuralChange = false
@@ -5679,7 +5718,7 @@ api setupTextToDbSync = class rvText, codeDb, settings {
 			substring(a,0,hs) == substring(b,0,hs) or substring(a,-hs) == substring(b,-hs) or false			
 		}
 		//print('rows1 '..toStr(rows))
-		arrayChangeToEvents(rowRefs, oldRows, rows, inserted, removed, changed, similarEnough)
+		arrayChangeToEvents(rowRefs, oldRows, rows, inserted, removed, changed, similarEnough, forceInvalidateAll)
 		//print('rows2 '..toStr(rows))
 		oldRows = rows
 
@@ -5737,7 +5776,8 @@ api setupTextToDbSync = class rvText, codeDb, settings {
 					push(rowRefs, id)					
 				}
 			})
-			set(rvText, arrayConcatToString(oldRows, '\n') )
+			prevCodeText = arrayConcatToString(oldRows, '\n') 
+			set(rvText, prevCodeText)
 //		}
 
 		if detectTree {
@@ -6138,12 +6178,14 @@ api RemoteDrawContext = class {
 		// remove subtree?  just leave to GC for now...
 	}
 
+/*
 	drawState = {
 		x = 0
 		y = 0
-		col = '#F90'
-		colValid = false
+		color = '#F90'    // option to inherit colors?
+		colorValid = false
 	}
+*/
 
 	primitiveRenderers = {
 
@@ -6160,20 +6202,19 @@ api RemoteDrawContext = class {
 	    }
 */
 	    circle = func d {
-	    	// handle state?
-	    	basicDrawCtx.strokeEnable(false)
+			if d.radius <= 0 { return }
 	    	basicDrawCtx.fillEnable(true)
-	    	basicDrawCtx.fillColor(d.col or '#FFF')
-	    	basicDrawCtx.fillAlpha(d.opacity or 1)	    	
+	    	basicDrawCtx.strokeEnable(false)
+	    	basicDrawCtx.fillColor(d.color or '#FFF')
+	    	basicDrawCtx.fillAlpha(d.opacity != nil ? d.opacity : 1) // skip? color already support alpha? 	    	
 	    	basicDrawCtx.circle(d.x * dpi, d.y * dpi, d.radius * dpi)
 	    }
 
 	    line = func d {
-	    	// handle state?
 	    	basicDrawCtx.fillEnable(false)
 	    	basicDrawCtx.strokeEnable(true)
-	    	basicDrawCtx.strokeColor(d.col or '#FFF')
-	    	basicDrawCtx.strokeAlpha(d.opacity or 1)
+	    	basicDrawCtx.strokeColor(d.color or '#FFF')
+	    	basicDrawCtx.strokeAlpha(d.opacity != nil ? d.opacity : 1)
 	    	basicDrawCtx.strokeWidth((d.width or 2) * dpi)
 	    	basicDrawCtx.beginPath()
 	    	basicDrawCtx.moveTo(d.x1 * dpi, d.y1 * dpi)
@@ -6182,13 +6223,51 @@ api RemoteDrawContext = class {
 	    }
 
 	    rect = func d {
-	    	col = d.col
-	    	oldCol = nil
-	    	if col { oldCol = drawState.col ; drawState.col = col ; drawState.colValid = false }
-	    	if drawState.colValid == false { basicDrawCtx.fillColor(drawState.col) }
+	    	// handle state?
+
+	    	// col = d.color
+	    	// oldCol = nil
+	    	// if col { oldCol = drawState.color ; drawState.col = col ; drawState.colorValid = false }
+	    	// if drawState.colorValid == false { basicDrawCtx.fillColor(drawState.color) }
+	    	// basicDrawCtx.fillRect(d.x * dpi, d.y * dpi, d.w * dpi, d.h * dpi)
+	    	// if oldCol { drawState.color = oldCol ; drawState.colorValid = false }
+
+	    	basicDrawCtx.fillEnable(true)
+	    	basicDrawCtx.strokeEnable(false)
+	    	basicDrawCtx.fillColor(d.color)
+	    	basicDrawCtx.fillAlpha(d.opacity != nil ? d.opacity : 1)
 	    	basicDrawCtx.fillRect(d.x * dpi, d.y * dpi, d.w * dpi, d.h * dpi)
-	    	if oldCol { drawState.col = oldCol ; drawState.colValid = false }
 	    }
+
+	    shape = func d {
+	    	basicDrawCtx.fillEnable(true)
+	    	basicDrawCtx.strokeEnable(false)
+	    	basicDrawCtx.fillColor(d.color or '#FFF')
+	    	basicDrawCtx.fillAlpha(d.opacity != nil ? d.opacity : 1)
+			pts = d.points
+			N = len(pts)
+			if N >= 2 {
+				basicDrawCtx.beginPath()
+				i = 0
+				while i < N {
+					basicDrawCtx.moveTo(pts[i] * dpi, pts[i + 1] * dpi)
+					i = i + 2
+					while i < N {
+						if pts[i] == nil {
+							i = i + 2
+							break;
+						}
+						basicDrawCtx.lineTo(pts[i] * dpi, pts[i + 1] * dpi)
+						i = i + 2
+					}
+				}
+				// basicDrawCtx.closePath()
+			}			
+			//basicDrawCtx.fill()
+			basicDrawCtx.endPath()
+	    }
+
+		
 	}
 
 	renderDrawTreeRec = nil
@@ -6204,13 +6283,22 @@ api RemoteDrawContext = class {
 		order = node.order
 		llForEachFast(order, renderDrawTreeRec, 'prev', 'next') if order
 
-		extend(drawState, popState) if popState
+//		extend(drawState, popState) if popState
 		nil
 	}
 
+	bgColor = '#000'
+
+	expose setBackgroundColor = func c {
+		if c != bgColor {
+			bgColor = c
+			global __wantDraw = true
+		}
+	}
 
 	expose draw = func {
-		basicDrawCtx.fillColor('#333') // actual background
+		basicDrawCtx.fillColor(bgColor or '#000') // actual background
+		basicDrawCtx.fillAlpha(1)
 		basicDrawCtx.fillRect(0, 0, basicDrawCtx.getWidth(), basicDrawCtx.getHeight())
 		renderDrawTreeRec(idToDrawable['root000'])
 	}
@@ -6263,12 +6351,13 @@ api t2dScale      = func x, y {                       [x, 0, 0, y, 0, 0] }
 api v2add = func a, b { [a[0]+b[0], a[1]+b[1]] }
 api v2sub = func a, b { [a[0]-b[0], a[1]-b[1]] }
 
-api inputHitTestPointToPoint = func a, b, inputFuzzMarginSquared {
+api inputHitTestPointToPoint = func a, b, inputFuzzMarginSquared, radius {
   xd = a[0] - b[0]
   yd = a[1] - b[1]
   magsqr = xd*xd + yd*yd
   if magsqr < inputFuzzMarginSquared {
-    return sqrt(magsqr / inputFuzzMarginSquared) 
+   return sqrt(magsqr / inputFuzzMarginSquared) +
+   			 0.15 * linearstep(6, 70, radius)  // increase prio of small circles (helps for overlapping)
   }
 }
 
@@ -6380,9 +6469,10 @@ api LocalDrawContext = class parentSysDrawable, remoteDrawContext {
 	expose getMinXHeight       = func { minXHeight }
 	expose pixelSnap           = func p { p = apply2dTransform (pixM, p) ; p[0] = floor(p[0]) ; p[1] = floor(p[1]) ; apply2dTransform (pixIm, p) }   
 	expose fromInput           = func s { apply2dTransform (inpIm, s) }
-	expose fromInputScalar     = func s { apply2dScale     (inpIm, s) }
+	expose fromInputScaleOnly  = func s { apply2dScale     (inpIm, s) } // interface assumes uniform scale (needs pos to support perspective)
 	expose toInput             = func s { apply2dTransform (inpM,  s) }
-	expose toInputScalar       = func s { apply2dScale     (inpM,  s) }
+	expose toInputScaleOnly    = func s { apply2dScale     (inpM,  s) } // interface assumes uniform scale (needs pos to support perspective)
+	expose toInputScalar       = func s { s * inpM[0]                 } // interface assumes uniform scale, current impl assumes no rotation!
 
 	debugCount = 0
 	expose createDrawable = func {
@@ -6425,7 +6515,6 @@ api createSimpleGuiSystem = func basicDraw {
 	remoteDrawContext = new RemoteDrawContext
 	remoteDrawContext.setDrawBackend(basicDraw)
 
-
 	drawEvent.register(func {
 	 for i * len(beforeNextDrawBeginList) { beforeNextDrawBeginList[i]() }
 	 beforeNextDrawBeginList = []
@@ -6433,6 +6522,7 @@ api createSimpleGuiSystem = func basicDraw {
 	 remoteDrawContext.draw()
 
 	// basicDrawCtx.fillColor(random() > 0.5 and '#FFAA00' or '#666666')
+	// basicDrawCtx.fillAlpha(1)
 	// basicDrawCtx.fillRect(10+random()*10,10+random()*10,120,120)
 	})
 
@@ -6480,17 +6570,22 @@ api createSimpleGuiSystem = func basicDraw {
 		}
 	}
 
-	createLocalDrawContext = func {
-		return new LocalDrawContext(nil, remoteDrawContext)
+	createLocalDrawContext = func parent {
+		assert(parent)
+		return new LocalDrawContext(parent, remoteDrawContext)
 	}
+
+	rootDrawCtx = new LocalDrawContext(nil, remoteDrawContext)
 
 	return {
 		inputAddDragListener = inputAddDragListener
 		createLocalDrawContext = createLocalDrawContext
+		getRootDrawContext = func { rootDrawCtx }
 		draw = func { remoteDrawContext.draw() }
+		setBackgroundColor = func c { remoteDrawContext.setBackgroundColor(c) }
 		setDPI = func dpi { remoteDrawContext.setDPI(dpi) }
 		getDPI = func dpi { remoteDrawContext.getDPI(dpi) }
-		isDragging = func { 
+		isAnyDown = func { 
 			// for k,v in currentCapture { print('currentCapture '..len(currentCapture)..' '..k..' '..v) }
 			return len(currentCapture) > 0
 		}
@@ -6500,3 +6595,308 @@ api createSimpleGuiSystem = func basicDraw {
 
 #####
 
+api createUIElement = func options {
+	ui = options.ui or gGui
+	ctx = options.drawContext or gGui.getRootDrawContext()
+
+	posInputValid = false
+	lastDragMyPosIS = nil
+	lastDragInputIS = nil	
+
+	down = false
+	clickTimeout = options.clickTimeout or 999
+	unintentionalDragThreshold = options.unintentionalDragThreshold or 10
+	dragDistance = 0
+	downTimeStamp = 0
+	userIntentionIsDrag = false
+
+	posIS = [0,0]
+	ppos = options.position or [0,0]
+	ssize = options.size or [0,0]
+	element = {
+		setPosition = func p { assert(type(p), '==', 'array') assert(isFiniteNumber(p[0])); assert(isFiniteNumber(p[1])); ppos[0] = p[0] ; ppos[1] = p[1] ; posInputValid = false }
+		getPosition = func   { [ppos[0], ppos[1]] }
+		setSize = func p { ssize[0] = p[0] ; ssize[1] = p[1] }
+		getSize = func   { [ssize[0], ssize[1]] }
+		isDown = func { down }
+		isDragged = func { userIntentionIsDrag }
+		timeSinceOnDown = func { getTime() - downTimeStamp }
+	}	
+	validateISCoord = func { posIS = ctx.toInput (ppos) ; posInputValid = true } 
+	if options.hitInput == 'circle' {
+		element.inputTest = func id, pos {
+			if not down {
+				if not posInputValid { validateISCoord() }
+				radius = 8
+				return inputHitTestPointToPoint(pos, posIS, square(radius + ctx.getInputFuzzMargin()), radius)
+			}
+		}	
+	} else { // rect
+		element.inputTest = func id, pos {
+			if not down {
+				if not posInputValid { validateISCoord() }
+				size = element.getSize()
+				margin = ctx.getInputFuzzMargin()
+
+				// polygon check instead of rect - we want to support rotated and 3D perspective transforms
+				quad2 = ctx.toInput([ppos[0] + size[0], ppos[1]])
+				quad3 = ctx.toInput([ppos[0] + size[0], ppos[1] + size[1]])
+				quad4 = ctx.toInput([ppos[0], ppos[1] + size[1]])
+				dist = distToQuad(pos[0], pos[1], margin, posIS[0], posIS[1], quad2[0], quad2[1], quad3[0], quad3[1], quad4[0], quad4[1])
+				if dist != nil {
+					// reduce priority of large rects (good for touch input vs small items)
+					// definition of small is hardoded: 30 units
+					dist = dist + 0.5 * margin * (1 - min(1, 30 / max(size[0], size[1])))
+				}
+				return dist
+			}
+		}
+	}
+
+
+	clientEvents = {} 
+	element.inputDrag = func id, event, pos {
+		if not posInputValid { validateISCoord() }
+		if event == 'start' or event == 'stop' { 
+			// ppos = mPos.get() 
+			posInputValid = false; 
+			down = event == 'start'
+			clientEvents.onIsDownChanged() if clientEvents.onIsDownChanged
+			if event == 'start' {
+				clientEvents.onDown() if clientEvents.onDown
+				assert(userIntentionIsDrag == false)
+				dragDistance = 0
+				downTimeStamp = getTime()
+			} else { // stop
+				clientEvents.onUp() if clientEvents.onUp
+				if userIntentionIsDrag {
+					userIntentionIsDrag = false
+					clientEvents.onIsDraggedChanged() if clientEvents.onIsDraggedChanged
+					clientEvents.onDragEnd() if clientEvents.onDragEnd	
+				} else {
+					if clientEvents.onClicked and getTime() - downTimeStamp < clickTimeout {
+						clientEvents.onClicked()
+					}
+				}
+			}
+		 } else {
+			diffDragIS = v2sub(pos, lastDragInputIS)
+			if not userIntentionIsDrag {
+				// detect if user intentionally starts dragging
+				dragDistance = dragDistance + abs(diffDragIS[0]) + abs(diffDragIS[1])
+				if dragDistance > unintentionalDragThreshold {
+					userIntentionIsDrag = true
+					clientEvents.onIsDraggedChanged() if clientEvents.onIsDraggedChanged
+					clientEvents.onDragBegin() if clientEvents.onDragBegin
+				}
+			}
+			diffMyIS = v2sub(posIS, lastDragMyPosIS)
+			ppos = v2add(ppos, ctx.fromInputScaleOnly(v2sub(diffDragIS, diffMyIS)))
+			validateISCoord()
+
+			clientEvents.onMoved() if clientEvents.onMoved
+
+			// mPos.set(ppos)
+		}
+		lastDragMyPosIS = posIS
+		lastDragInputIS = pos
+	}	
+	inputHandle = ui.inputAddDragListener(element)
+	element.bindDrawables = func items, updateFunc {
+		remove(element.drawBindings)
+		element.drawBindings = ctx.bindUpdateFunction(items, updateFunc)
+	}
+	clientEvents = options.onInit(element, ctx) if options.onInit
+	element_remove = func { 
+		remove(clientEvents.onRemove)
+		remove(element.drawBindings)
+		remove(inputHandle)
+	}
+
+	element.remove = element_remove
+	return element
+}
+
+#####
+
+api draggableDividerAndBackground = func options {
+
+	cornerPos = [40, 40]
+	circleVsBottomOffset = 12
+
+	dragAndAnimateTextPane = createUIElement({
+		position = [cornerPos[0], (options.defaultHeight or 300) + circleVsBottomOffset]
+		hitInput = 'circle'
+		draggable = true
+		onInit = func self, ctx {
+			iconScale = options.iconScale or 1
+			icon = ctx.createDrawable()
+			bg = ctx.createDrawable()
+
+			reactiveRect = options.reactiveRect
+			rW = get(reactiveRect)[2]
+			rH = get(reactiveRect)[3]
+			paneHidden = false
+			smoothDown = smoother(0)
+			smoothDown2 = smoother(0)
+			smoothPaneHidden = smoother(0)
+			smoothXY = smoother2(nil, 0.5)
+			smoothH = smoother(nil, 0)
+			statePaneH = options.statePaneH
+			prevStatePaneH = nil
+			sm = 0 // disable smoothing the first frame	
+			saveState = false
+			dragHandlePos = self.getPosition()
+			dragHandlePosSaved = self.getPosition()
+			warpAtEdge = func x { mix(-8, 0, smoothstep(0, 30, x)) } // if bottom of rect is at y==0 : offset -8
+			
+			getPaneOffsetY = func { 
+				h = rH
+				offset = smoothPaneHidden.value * h
+				warp = warpAtEdge(h - offset)
+				return -floor(offset - warp)
+			}
+
+			self.bindDrawables([bg, icon], func {
+				// print('draw '..frameTime())
+				pos = smoothXY.value
+				extraW = 20 // just to hide top rounded rect corners
+				border = 4  // looks nicer if text is cut slightly earlier than bg 
+				rectY = getPaneOffsetY() - extraW
+				rectH = rH + extraW + border
+
+				if options.iconData {
+					iconData = options.iconData
+					pts = []
+					for i * len(iconData)/2 {
+						push(pts, iconData[i*2] == nil ? nil :  iconData[i*2  ] * iconScale + pos[0])
+						push(pts, iconData[i*2] == nil ? nil : -iconData[i*2+1] * iconScale + pos[1])
+					}
+					iconAmt = max(smoothPaneHidden.value, 1 - linearstep(0, 30, (rectY + rectH) - cornerPos[1]))
+					if options.iconOpacity { iconAmt = iconAmt * options.iconOpacity }
+					icon.update('shape', {points = pts, color = options.iconColor or '#fff', opacity = iconAmt})						
+				}
+			
+				// rounded rect
+				bgPts = roundedRectAndCircle(
+						0, rectY, rW, rectH, 10,      // rounded rect
+						pos[0], pos[1], 25 + 10 * smoothDown.value,  // circle
+						5 + 10 * smoothDown2.value, 1)              // react distance, tesselation
+				bg.update('shape', {points = bgPts, color = options.bgColor or '#222', opacity = options.bgOpacity ? options.bgOpacity : 0.8})
+
+			})
+						
+			onInterval(0, func {
+				dt = frameTime()
+				smoothDown      .process(self.isDown() ? 1 : 0, 0.05 * sm, dt)
+				smoothDown2     .process(self.isDown() ? 1 : 0, 0.25 * sm, dt)
+				smoothPaneHidden.process(paneHidden    ? 1 : 0, 0.55 * sm, dt)
+
+				if self.isDown() {
+					dragHandlePos = self.getPosition();
+				}
+
+				if options.changedFromCss and options.changedFromCss() {
+					// rect changed via css (from user resize textarea or browser tools)
+					rW = get(reactiveRect)[2]			
+					dragHandlePos[1] = get(reactiveRect)[3] + circleVsBottomOffset	
+				}
+
+				if statePaneH and get(statePaneH) != prevStatePaneH {
+					// from URL #pane
+					paneHidden = get(statePaneH) < 0
+					smoothPaneHidden.reset(paneHidden ? 1 : 0)
+					saveState = false
+					sm = 0
+					dragHandlePos[1] = abs(get(statePaneH)) + circleVsBottomOffset
+					prevStatePaneH = get(statePaneH)			
+				}
+
+				curY = get(reactiveRect)[1]
+				curH = get(reactiveRect)[3]
+				newH = curH
+				if not paneHidden {
+					newHps = max(0, dragHandlePos[1] - circleVsBottomOffset + warpAtEdge(dragHandlePos[1] - cornerPos[1]) * 8)
+					// base smoothing amount on distance 
+					heightSmoothTime = mix(0.3, 0.1, smoothH.value == nil ? 0 : smoothstep(40, 140, abs(newHps - smoothH.value)))
+					newH = floor(smoothH.process(newHps, heightSmoothTime * sm, dt))
+				}
+
+				if options.changedFromPageResize and options.changedFromPageResize() {
+					rW = get(reactiveRect)[2]	
+				}
+				
+				if newH != curH or getPaneOffsetY() != curY or options.changedFromPageResize and options.changedFromPageResize() {
+					rH = newH
+					set(reactiveRect, [0, getPaneOffsetY(), rW, rH], self) 
+					bg.needDraw()
+				} 				
+
+				if self.isDown() {
+					smoothXY.process(dragHandlePos, 0.08 * sm, dt)
+				} else {
+					smoothXY.process(paneHidden ? cornerPos : dragHandlePos, 0.5 * sm, dt)
+					self.setPosition(smoothXY.value)
+				}
+
+				if not (smoothDown.reached and smoothDown2.reached and
+						smoothXY.reached and smoothPaneHidden.reached)
+				{
+					bg.needDraw()
+				} else if statePaneH and saveState {
+					prevStatePaneH = rH * (paneHidden ? -1 : 1)
+					set(statePaneH, prevStatePaneH)	
+					saveState = false
+				}
+
+				sm = 1
+			})
+
+			return {
+				onMoved            = func { bg.needDraw() }
+				onClicked          = func {
+					if not options.clickEvent { 
+						if paneHidden {
+							dragHandlePos = dragHandlePosSaved
+						} 
+						if paneHidden or 
+						   self.timeSinceOnDown() < 0.4 // holding down for long duration when not folded -> interpret as drag (don't hide)
+						{   
+							paneHidden = not paneHidden	
+						}
+						saveState = true						
+					}
+				}
+				onDown = func {
+					options.clickEvent() if options.clickEvent
+					dragHandlePosSaved = dragHandlePos 
+					bg.needDraw()
+				} 
+				onUp = func {
+					saveState = true				
+					bg.needDraw()
+				}
+				onDragBegin = func { 
+					if paneHidden {
+						paneHidden = false
+						// started dragging the icon of a hidden pane
+						// hard switch from: pane offseted -> pane is cropped
+						smoothPaneHidden.reset(0)
+						smoothH.reset(0)
+					}
+				}
+				onDragEnd = func { 
+					if not paneHidden {
+						if self.getPosition()[1] - 40 <= cornerPos[1] {
+							// dragged and released close to top, interpret as hide
+							dragHandlePos = [cornerPos[0], options.defaultHeight or 300]
+							paneHidden = true
+							saveState = true
+						}
+					}
+				}
+			}
+		}
+	})
+
+}

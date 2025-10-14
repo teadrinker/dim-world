@@ -1301,6 +1301,9 @@ instantiateRec = func ns, t {
 				opcode = unaryOps[tok]
 				if not opcode { throw('no such opcode '..tok..' '..serialize(t))}
 				ret = opcode.callback(ns, nil, t.right)
+			} else {
+				// redundant bracket
+				ret = instantiateRec(ns, t.right)
 			}
 		} else {
 			data = t.string
@@ -1996,7 +1999,7 @@ api spine_createVec3Conn = func rvToRa, token, options, changedCallback {
 	ctx = createHookContext()
 	item = {
 		get = func { rvX==nil or rvY==nil or rvZ==nil?(options.def != nil ? options.def : [0,0,0]):[get(rvX), get(rvY), get(rvZ)] }
-		set = func v { x = v[0] ; y = v[1] ; z = v[2] ; set(rvX, x) ; set(rvY, y) ; set(rvZ, z) }
+		set = func v, writer { x = v[0] ; y = v[1] ; z = v[2] ; set(rvX, x, writer) ; set(rvY, y, writer) ; set(rvZ, z, writer) }
 		remove = func { remove(hRvX) ; remove(hRvY) ; remove(hRvZ) ; remove(hRa) ; remove(ctx) ;  }
 	}
 
@@ -2072,7 +2075,8 @@ api spine_createValueConnection = func rvToRa, token, options, changedCallback {
 			}
 			return v
 		}
-		set = func v { x = v ; set(rvX, x) }
+		getLastWriter = func { rvX ? rvX.lastWriter : nil }
+		set = func v, writer { x = v ; set(rvX, x, writer) }
 		remove = func { remove(hRa) ; remove(ctx) ;  }
 	}
 
@@ -2310,6 +2314,39 @@ api spine_wrapRecursive = func spine_func {
 }
 
 
+#####
+
+api wrap4NumberToString = func inner, defs {
+	func ns, args, returnVal {
+		set(returnVal, '#fff')
+		v0 = nil
+		v1 = nil
+		v2 = nil
+		v3 = nil
+		update = func { 
+			if v3 {
+				vv0 = v0.get()
+				vv1 = v1.get()
+				vv2 = v2.get()
+				vv3 = v3.get()
+				if isFiniteNumber(vv0) and isFiniteNumber(vv1) and isFiniteNumber(vv2) and isFiniteNumber(vv3) {
+					set(returnVal, inner(vv0, vv1, vv2, vv3))
+					return
+				}
+			}
+			set(returnVal, '#fff')
+		}
+
+		v0 = spine_createValueConnection(args, 0, {def = defs == nil ? uninitialized : defs[0]}, update)
+		v1 = spine_createValueConnection(args, 1, {def = defs == nil ? uninitialized : defs[1]}, update)
+		v2 = spine_createValueConnection(args, 2, {def = defs == nil ? uninitialized : defs[2]}, update)
+		v3 = spine_createValueConnection(args, 3, {def = defs == nil ? uninitialized : defs[3]}, update)
+
+		update()
+
+		return { remove = func { remove(v0) ; remove(v1) ; remove(v2) ; remove(v3) }}
+	}
+}
 
 #####
 
@@ -2822,27 +2859,33 @@ api spineComp_clamp = func ns, args, returnVal {
 	vVal = uninitialized
 	miVal = uninitialized
 	maVal = uninitialized
-	update = func {
+	update = func lastWriter {	
+		if lastWriter == ctx {
+			return
+		}
 		if isFiniteNumber(vVal) and isFiniteNumber(miVal) and isFiniteNumber(maVal) {
 			vVal = clamp(vVal, miVal, maVal)
-			set(returnVal, vVal)			
+			set(returnVal, vVal, ctx)			
 		} else {
-			set(returnVal, uninitialized)	
+			set(returnVal, uninitialized, ctx)	
 		}	
 	}
 
-	v  = spine_createValueConnection(args, 0, {def = uninitialized}, func v  { vVal  =  v.get() ; update() })	
+	v  = spine_createValueConnection(args, 0, {def = uninitialized}, func v  { vVal  =  v.get() ; update(v.getLastWriter()) })	
 	mi = spine_createValueConnection(args, 1, {def = 0},             func mi { miVal = mi.get() ; update() })	
 	ma = spine_createValueConnection(args, 2, {def = 1},             func ma { maVal = ma.get() ; update() })	
 
 	hook(ctx, returnVal, func {
+		if returnVal.lastWriter == ctx {
+			return
+		}
 		invVal = get(returnVal)
 		if isFiniteNumber(invVal) and isFiniteNumber(miVal) and isFiniteNumber(maVal) {
 			invValClamp = clamp(invVal, miVal, maVal)
 			if invValClamp != invVal {
-				set(returnVal, invValClamp)
+				set(returnVal, invValClamp, ctx)
 			}
-			v.set(invValClamp)
+			v.set(invValClamp, ctx)
 		}
 	})
 
@@ -3032,12 +3075,115 @@ api spineComp_mix = func ns, args, returnVal {
 	}
 
 }
+#####
+
+// todo create new component record ((value, customTime?, maxHistory?) => func):
+// usage:
+//    
+//    history = record(someValue) 
+//    delayed1 = history(1)
+//    delayed2 = history(2)
+
+api spineComp_delay = func ns, args, returnVal {
+	intervalHandle = nil
+	delayTime = uninitialized
+	customTime = uninitialized
+	getCustomTime = func { customTime == uninitialized ? getTime() : customTime }
+	inp = nil
+
+	delaycomp_everyframe = func {
+		if isFiniteNumber(delayTime) {
+			allStable = true
+			for item in inp.currentItems {
+				item.rec.cleanup()
+				val = item.sampler.sample(delayTime)
+				set(item.rvDst, isFiniteNumber(val) ? val : uninitialized)
+				allStable = allStable and item.rec.isStable() 
+			}
+			if allStable {
+				remove(intervalHandle)
+				intervalHandle = nil
+			}
+		}
+	}
+
+	update = func isDelayTime {
+		if isDelayTime and isFiniteNumber(delayTime) {
+			for item in inp.currentItems {
+				if item.rec {
+					item.rec.setCapacity(delayTime * 2) 
+				}
+			}
+		}
+		if intervalHandle == nil { intervalHandle = onInterval(0, delaycomp_everyframe)	}
+	}
+
+	onAnyChange = func id, item, onlyValueChange  {
+		if not item.rec {
+			item.rec = timeSeriesRecorder(getCustomTime, isFiniteNumber(delayTime) ? delayTime * 2 : 10)
+			item.sampler = item.rec.createSampler()
+		} 
+		val = get(item.rvSrc)
+		if isFiniteNumber(val) {
+			item.rec.pushSampleAtCurrentTime(val)
+		}
+		if intervalHandle == nil { intervalHandle = onInterval(0, delaycomp_everyframe)	}
+	}	
+
+	inp = spine_createRecursiveValueConnection(args, 0, {def = uninitialized}, returnVal, onAnyChange)
+	b = spine_createValueConnection           (args, 1, {def = uninitialized}, func b { delayTime  = b.get() ; update(true) })	
+	c = spine_createValueConnection           (args, 2, {def = uninitialized}, func c { customTime = c.get() ; update() })	
+	return {
+		remove = func { set(returnVal, uninitialized) ; remove(inp) ; remove(b) ; remove(c) ; remove(intervalHandle) }
+	}
+}
 
 #####
 
-api spineComp_createTrace = func ns, args, returnVal {
+api spineComp_delay_singlenumber = func ns, args, returnVal {
+	intervalHandle = nil
+	val = uninitialized
+	delayTime = uninitialized
+	customTime = uninitialized
+
+	rec = timeSeriesRecorder(func { customTime == uninitialized ? getTime() : customTime }, 10)
+	sampler = rec.createSampler()
+
+	delaycomp_everyframe = func {
+		if isFiniteNumber(delayTime) {
+			rec.cleanup()
+			set(returnVal, sampler.sample(delayTime))
+			if rec.isStable() {
+				remove(intervalHandle)
+				intervalHandle = nil
+			}
+		}
+	}
+
+	update = func which {
+		if      which == 0 and isFiniteNumber(val)       { rec.pushSampleAtCurrentTime(val) }
+		else if which == 1 and isFiniteNumber(delayTime) { rec.setCapacity(delayTime * 10)   }
+		// else if which == 2 {} //  don't need to do anything for customTime since it's polled
+
+		if intervalHandle == nil {
+			intervalHandle = onInterval(0, delaycomp_everyframe)				
+		}
+	}
+
+	a = spine_createValueConnection(args, 0, {def = uninitialized}, func a { val        = a.get() ; update(0) })	
+	b = spine_createValueConnection         (args, 1, {def = uninitialized}, func b { delayTime  = b.get() ; update(1) })	
+	c = spine_createValueConnection         (args, 2, {def = uninitialized}, func c { customTime = c.get() ; update(2) })	
+	return {
+		remove = func { remove(a) ; remove(b) ; remove(c) ; remove(intervalHandle) }
+	}
+}
+
+#####
+
+api spineComp_trace = func ns, args, returnVal {
 	v = spine_createValueConnection(args, 0, {def = 'no argument'}, func v { 
 		print(' --- TRACE --- ' .. toStr(v.get()))
+		set(returnVal, v.get())
 	})	
 
 	return {
@@ -3583,24 +3729,23 @@ api createSpineApp = func options {
 
 	tree = createTreeApi()
 
-	codeWindowSize = {w:600, h:300} // note: w is replaced with current width in pageSize hook
+	codeWindowSize = {w:1200, h:300} // note: w is replaced with current width in pageSize hook
+	statePaneH = create(codeWindowSize.h)
 	textDebug = nil
 	margin = 10
 
-	codeInput   = wrapSetToModel(gHookContext,  {text = options.code or '\n\nrun\n\n', rect = [0, 0, codeWindowSize.w - margin, codeWindowSize.h - margin] }, createTextInput)
+	codeInput   = wrapSetToModel(gHookContext, {
+			fontSize = toString(options.fontSize or 16)..'px'
+			color = '#ffffffdd'
+			text = options.code or '\n\nrun\n\n' 
+		 	rect = [ 0, 
+			         options.paneBackground ? -codeWindowSize.h*2 : 0, 
+					 codeWindowSize.w - margin, 
+					 codeWindowSize.h - margin] 
+			}, createTextInput)
 	
-	if options.debug or uriToTable(getURLQueryString()).debug {
-		textDebug = wrapSetToModel(gHookContext,  {fontSize = "8px", text = '', rect = [codeWindowSize.w, 0, codeWindowSize.w - margin, codeWindowSize.h * 2 - margin] }, createTextInput)
-	}
-
-	if options.pageSize {
-		hook(gHookContext, options.pageSize, func {
-			wh = get(options.pageSize)
-			set(codeInput.rect, [0, 0, wh[0], codeWindowSize[1]]) 
-			if textDebug {
-				//set(textDebug.rect, [codeWindowSize.w, 0, wh[0] - codeWindowSize.w, codeWindowSize[1] * 2]) 
-			}
-		}, true)
+	if options.debug {
+		textDebug = wrapSetToModel(gHookContext,  {fontSize = "10px", text = '', rect = [codeWindowSize.w/2, 0, codeWindowSize.w/2 - margin, codeWindowSize.h * 2 - margin] }, createTextInput)
 	}
 
 	db = createDb()
@@ -3612,20 +3757,53 @@ api createSpineApp = func options {
 	// hook(gHookContext, verboseLog, func { tracingFunctionsEnabled = get(verboseLog) == '1' })
 	// state.add({log = verboseLog})
 
-	state.add({code = codeInput.text})
+	state.add({pane = statePaneH, code = codeInput.text})
 
 	syncDbToHttpFragment(db, {
 		interval = 0.5
 		stateDefaults = state.defaults
-		omitDefaults = false
+		omitDefaults = true
 		onDbChangedFromFragment = state.sync
-		blockUpdate = func { if options.isDragging { options.isDragging() } }
+		blockUpdate = func { if options.isAnyDown { return options.isAnyDown() } }
 	 })
+
+	if options.pageSize and not options.hideCode {
+		hook(gHookContext, options.pageSize, func {
+			pageSize = get(options.pageSize)
+			rect = get(codeInput.rect) 
+			set(codeInput.rect, [rect[0], rect[1],  pageSize[0], rect[3]], options.pageSize) 
+			if textDebug {
+				//set(textDebug.rect, [codeWindowSize.w, 0, pageSize[0] - codeWindowSize.w, codeWindowSize[1] * 2]) 
+			}
+		}, true)
+	}
+
+	if options.paneBackground and not options.hideCode {
+		options.paneBackground({
+			iconData = [ 0, -0.57735  ,-1,   0      , 0, 0.57735  , 1,   0      ,nil,nil,
+						 0,  1.1547   ,-1,   1.732  , 0, 2.3094   , 1,   1.732  ,nil,nil,
+						 0, -2.3094   ,-1,  -1.732  , 0,-1.1547   , 1,  -1.732  ,nil,nil,
+						-1,  0        ,-1.5, 0.866  ,-1, 1.732    ,-0.5, 0.866  ,nil,nil,
+						 1, -1.732    , 0.5,-0.866  , 1, 0        , 1.5,-0.866  ]
+			iconScale = 7
+			iconOpacity = 0.6
+			reactiveRect          = codeInput.rect
+			defaultHeight         = codeWindowSize.h
+			statePaneH            = statePaneH
+			changedFromCss        = func { codeInput.rect.lastWriter == codeInput }
+			changedFromPageResize = func { codeInput.rect.lastWriter == options.pageSize }
+			clickEvent            = options.embed ? func { setURL(findAndReplace(findAndReplace(getURL(), 'embed=1', ''), 'pane=-','pane='), true) } : nil
+		})
+	}
 
 	codeDb = createDb()
 	codeDbListen = codeDb.subscribe()
 
-	syncInstance = new setupTextToDbSync(codeInput.text, codeDb, {autoIndent = true, detectTree = true})
+	syncInstance = new setupTextToDbSync(codeInput.text, codeDb, {
+		autoIndent = true, 
+		detectTree = true, 
+		forceInvalidateAll = options.incremental == nil ? false : not options.incremental
+		})
 	codeCtx = new reactiveTextTreeContext
 	runRoot = nil
 	updateCode = nil
@@ -3636,10 +3814,19 @@ api createSpineApp = func options {
 		updateCode(0)
 	})
 
-	injectComponents = func block, components {
+	injectComponents = func block, components { // rename? it can also inject values
 		obj = createComposite()
-		for name, createFunc in components {
-			obj.add(spineBlock_nameSpaceWriteObj(block, name, create({ ___functor = createFunc })))
+		for name, func_or_rv in components {
+			if type(func_or_rv) == 'func' {
+				obj.add(spineBlock_nameSpaceWriteObj(block, name, create({ ___functor = func_or_rv })))
+			} else if func_or_rv.___class == 'reactiveValue' {
+				obj.add(spineBlock_nameSpaceWriteObj(block, name, func_or_rv))			
+				hook(gHookContext, func_or_rv, func {
+					print('WARNING! constant changed '..name..' = '..get(func_or_rv))
+				})
+			} else {
+				print('injectComponents error')
+			}
 		}
 		;
 		return obj
@@ -3660,7 +3847,7 @@ api createSpineApp = func options {
 			for       = spineComp_for
 			if        = spineComp_if 
 			state     = spineComp_state
-			trace     = spineComp_createTrace 
+			trace     = spineComp_trace 
 			// floor     = spineComp_createRoundOrFloor(0)
 			// round     = spineComp_createRoundOrFloor(0.5)
 			floor     = spine_wrapRecursive(createRoundOrFloor(0))
@@ -3671,13 +3858,16 @@ api createSpineApp = func options {
 			gensin    = spineComp_createAnimationGenerator(func x { sin(x*pi*2) }) 
 			gencos    = spineComp_createAnimationGenerator(func x { cos(x*pi*2) }) 
 			time      = spineComp_time
-			getTime   = spineComp_getTime
+			getTime   = spineComp_getTime // remove, uses very large value in seconds 
 			frameTime = spineComp_frameTime
-			abs       = spineComp_wrapSingleNumberArg(abs, uninitialized)
-			sin       = spineComp_wrapSingleNumberArg(sin, uninitialized)
-			cos       = spineComp_wrapSingleNumberArg(cos, uninitialized)
-			pow       = spineComp_wrapDoubleNumberArg(pow, uninitialized, uninitialized)
-			atan2     = spineComp_wrapDoubleNumberArg(atan2, uninitialized, uninitialized)
+			sign      = spineComp_wrapSingleNumberArg(sign, uninitialized)
+			abs       = spineComp_wrapSingleNumberArg(abs,  uninitialized)
+			sin       = spineComp_wrapSingleNumberArg(sin,  uninitialized)
+			cos       = spineComp_wrapSingleNumberArg(cos,  uninitialized)
+			pow       = spineComp_wrapDoubleNumberArg(pow,  uninitialized, uninitialized)
+			atan2     = spineComp_wrapDoubleNumberArg(atan2,uninitialized, uninitialized)
+			min       = spineComp_wrapDoubleNumberArg(min,  uninitialized, uninitialized)
+			max       = spineComp_wrapDoubleNumberArg(max,  uninitialized, uninitialized)
 			rotate    = spineComp_rotate
 			toPolar   = spine_vec2_vec2_wrap(toPolar, fromPolar)
 			fromPolar = spine_vec2_vec2_wrap(fromPolar, toPolar)
@@ -3688,8 +3878,11 @@ api createSpineApp = func options {
 			smooth    = spineComp_createSmooth(true)
 			// smooth2   = spineComp_createSmooth(true)
 			// onAnim    = spineComp_onAnim
-			magnitude    = spineComp_magnitude
+			magnitude = spineComp_magnitude
 			keyDown   = spineComp_keyDown 
+			delay     = spineComp_delay 
+			pi   	  = create(pi) 
+			tau  	  = create(pi * 2) 
 		})
 
 		runRoot = newRootObj.rootExpression ; print('RUNROOT!')

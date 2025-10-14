@@ -17,29 +17,38 @@
 */
 
 #####
-#{ js return { createInt8Array         : function(n, init) { var r = new Int8Array        (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
-#{ js return { createUint8Array        : function(n, init) { var r = new Uint8Array       (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
-#{ js return { createUint8ClampedArray : function(n, init) { var r = new Uint8ClampedArray(n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
-#{ js return { createInt16Array        : function(n, init) { var r = new Int16Array       (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
-#{ js return { createUint16Array       : function(n, init) { var r = new Uint16Array      (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
-#{ js return { createInt32Array        : function(n, init) { var r = new Int32Array       (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
-#{ js return { createUint32Array       : function(n, init) { var r = new Uint32Array      (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
-#{ js return { createFloat32Array      : function(n, init) { var r = new Float32Array     (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
-#{ js return { createFloat64Array      : function(n, init) { var r = new Float64Array     (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
-#{ js return { resize              : function(s, leng) { s.length = leng }                        } #}   #####
-#{ js return { toLower             : function(s)       { return s.toLowerCase() }                 } #}   #####
-#{ js return { toUpper             : function(s)       { return s.toUpperCase() }                 } #}   #####
-#{ js return { charCodeAt          : function(s, i)    { if(typeof s != 'string') { throw('charCodeAt expected string, was '+(typeof s)) } return s.charCodeAt(i) }                 } #}   #####
-//#{ js return { push                : function(a, v, i) { if(!a.push && !a.splice) { throw("cannot push "+(v)+" to "+(a) ) } if(i != undefined) a.splice(i,0,v); else a.push(v) }   } #}   #####
-#{ js return { pop                 : function(a, i, n) { if(!a.length) { return undefined } if(i != undefined) return a.splice(i,n||1)[0]; return a.pop(a) }       } #}   #####
-#{ js return { arrayConcatToString : function(a, v)    { return a.join(v || '') }                 } #}   #####
-// core #{ js return { split               : function(s, by)   { return s.split(by) }                     } #}   #####
+#{ js return { createInt8Array         : (n, init) => { var r = new Int8Array        (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
+#{ js return { createUint8Array        : (n, init) => { var r = new Uint8Array       (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
+#{ js return { createUint8ClampedArray : (n, init) => { var r = new Uint8ClampedArray(n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
+#{ js return { createInt16Array        : (n, init) => { var r = new Int16Array       (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
+#{ js return { createUint16Array       : (n, init) => { var r = new Uint16Array      (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
+#{ js return { createInt32Array        : (n, init) => { var r = new Int32Array       (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
+#{ js return { createUint32Array       : (n, init) => { var r = new Uint32Array      (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
+#{ js return { createFloat32Array      : (n, init) => { var r = new Float32Array     (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
+#{ js return { createFloat64Array      : (n, init) => { var r = new Float64Array     (n); if(init != undefined) for(var i=0; i<n; i++) r[i] = init; return r }  } #}   #####
+#{ js return { resize                  : (s, leng) => { s.length = leng }                        } #}   #####
+#{ js return { toLower                 : (s)       => { return s.toLowerCase() }                 } #}   #####
+#{ js return { toUpper                 : (s)       => { return s.toUpperCase() }                 } #}   #####
+#{ js return { charCodeAt              : (s, i)    => { if(typeof s != 'string') { throw('charCodeAt expected string, was '+(typeof s)) } return s.charCodeAt(i) }                 } #}   #####
+//#{ js return { push                  : (a, v, i) => { if(!a.push && !a.splice) { throw("cannot push "+(v)+" to "+(a) ) } if(i != undefined) a.splice(i,0,v); else a.push(v) }   } #}   #####
+#{ js return { pop                     : (a, i, n) => { if(!a.length) { return undefined } if(i != undefined) return a.splice(i,n||1)[0]; return a.pop(a) }       } #}   #####
+#{ js return { arrayConcatToString     : (a, v)    => { return a.join(v || '') }                 } #}   #####
+// core #{ js return { split           : (s, by)   => { return s.split(by) }                     } #}   #####
 
-#{ js return { getURLQueryString   : function()        { return location.search === '' ? '' : location.search.substring(1) }                 } #}   #####
-#{ js return { setURLQueryString   : function(str)     { location.search = str }                 } #}   #####
-#{ js return { getURLFragment      : function()        { return location.hash === '' ? '' : location.hash.substring(1) }                 } #}   #####
-#{ js return { setURLFragment      : function(str)     { location.hash = str }                    } #}   #####
-#{ js return { setURLRelative      : function(relDir)  { location.pathname = location.pathname + relDir }   } #}   #####
+#{ js return { getURLQueryString       : ()        => { return location.search === '' ? '' : location.search.substring(1) }                 } #}   #####
+#{ js return { setURLQueryString       : (str)     => { location.search = str }                 } #}   #####
+#{ js return { getURLFragment          : ()        => { return location.hash === '' ? '' : location.hash.substring(1) }                 } #}   #####
+#{ js return { setURLFragment          : (str)     => { location.hash = str }                    } #}   #####
+#{ js return { setURLRelative          : (relDir)  => { location.pathname = location.pathname + relDir }   } #}   #####
+#{ js return { getURL                  : ()        => window.location.href }  #}   #####
+#{ js return { setURL                  : (url, newWindow) => {
+	if(newWindow) {
+		const newTab = window.open(url, '_blank');
+		if (newTab) { newTab.opener = null; }
+	} else
+		window.location.href = url
+}   
+} #}   #####
 
 // time in seconds since 1970/01/01 
 #{ js return { getTime             : function(s)       { return (new Date()).getTime() / 1000 }   } #} 
@@ -216,7 +225,7 @@
 					  +'onmouseup="' +id+ '_CheckForChange(1)" ></textarea>'
 		document.getElementById(prefix+'text_input').appendChild(el)
 		var tarea = document.getElementById(id)
-		var pad = 10
+		var pad = 0 // this creates problems for very small items, as css does not hold negative sizes (but two-way rect binding between css/interface is overkill anyway?)
 		var setRect
 
 
@@ -278,22 +287,24 @@
 			}
 			check()
 		}	
-		setRect = function(rect) {
+		setRect = function(rect, from) {
 			if(rect == undefined) { // what is this? delete by setting undefined rect? weird
 				window[id+'_CheckForChange'] = undefined
 				document.getElementById(prefix+'text_input').removeChild(el)
 				return
 			}
-			if((rect[0]!=lastRect[0] || rect[1]!=lastRect[1] || rect[2]!=lastRect[2] || rect[3]!=lastRect[3])) {
+			var x = Math.floor(rect[0]), y = Math.floor(rect[1]), w = Math.floor(rect[2]), h = Math.floor(rect[3])
+			if((x!=lastRect[0] || y!=lastRect[1] || w!=lastRect[2] || h!=lastRect[3])) {
 				lastRect = rect.slice(0)
-				el.style.left = rect[0]+'px'
-				el.style.top = rect[1]+'px'
-				el.style.width = rect[2]+'px'
-				el.style.height = rect[3]+'px'
+				el.style.left = x+'px'
+				el.style.top = y+'px'
+				el.style.width = w+'px'
+				el.style.height = h+'px'
 				tarea.style.padding = pad+'px'
-				tarea.style.width = (rect[2]-pad*2)+'px'
-				tarea.style.height = (rect[3]-pad*2)+'px'	
-				onChange('rect', lastRect);
+				tarea.style.width = (w-pad*2)+'px'
+				tarea.style.height = (h-pad*2)+'px'	
+				if(from != 'modelToApi')
+					onChange('rect', lastRect);
 			}				
 		}
 		var lastColor;    
@@ -410,6 +421,330 @@
 		*/
 		}
 	}
+#}
+
+#####
+
+#{ js 
+
+// https://madtealab.com/#C=3&F=1&G=1&O=1&W=728&GX=0.5&GY=0.5&GS=3&GSY=0.59&GQ=80&b=0.25&c=0.66&f1=HexToRGB%28hsvToHex%28x%2Cy%2Cc%29%29&fs1=2D
+
+let toByte = v => Math.round(v < 0 ? 0 : (v > 255 ? 255 : v))
+let byteToHex = b => "0123456789ABCDEF"[b >> 4] + "0123456789ABCDEF"[b & 0x0F] 
+// let HexToRGB = c => [parseInt(c.substr(0,2), 16)/255, parseInt(c.substr(2,2), 16)/255, parseInt(c.substr(4,2), 16)/255]
+let rgbToHex = (r,g,b,a) => byteToHex(toByte(r*255)) + byteToHex(toByte(g*255)) + 
+							(a === 1 || a === undefined  ? 
+								byteToHex(toByte(b*255)) :
+								byteToHex(toByte(b*255)) + byteToHex(toByte(a*255))
+							)
+let grayToHex = r => { s = byteToHex(toByte(r*255)) ; return s+s+s }
+let hsvToHex = (H, S, V, A) => {
+	var i,h,w,r=[V,V,V]
+ 	if(S) {
+		h=(H-Math.floor(H))*6
+		i=Math.floor(h)
+		w=i>>1
+		if(i&1)
+			r[(w+0)%3]=V*(1-S*(h-i))
+		else
+			r[(w+1)%3]=V*(1-S*(1-(h-i)))
+		r[(w+2)%3]=V*(1-S)
+	}
+	return rgbToHex(r[0], r[1], r[2], A)
+}
+let hslToHex = (h, s, l, a) => {
+	var t,v
+    l *= 2
+	s *= (l <= 1) ? l : 2 - l
+	t = l + s
+	v = t / 2
+	s = t ? (2 * s) / t : 0
+	return hsvToHex(h, s, v, a)
+}
+
+return { byteToHex : byteToHex, rgbToHex : rgbToHex, grayToHex : grayToHex, hsvToHex : hsvToHex, hslToHex : hslToHex }
+
+#}
+
+#####
+
+#{ js 
+
+smoother = function(startVal, gate, gateVelThreshold) {
+	gate = gate !== undefined ? gate : 0.002
+	gateVelThreshold = gateVelThreshold !== undefined ? gateVelThreshold : 36 * gate
+	var state = { value : startVal, vel : 0 }
+	state.reset = (value, vel) => { state.value = value ; state.vel = vel == undefined ? 0 : vel ; state.reached = value !== undefined }
+	state.process = (target, smoothTime, deltaTime) => {
+		var current = state.value == undefined ? target : state.value
+		var currentVel = state.vel
+
+		var diff = target - current
+		if( smoothTime == 0 ||
+			diff == 0 && currentVel == 0 ||
+			diff >= 0 && diff <  gate && currentVel >= 0 && currentVel <  gateVelThreshold || 
+			diff <= 0 && diff > -gate && currentVel <= 0 && currentVel > -gateVelThreshold ) {
+			state.vel = 0
+			state.value = target
+			state.reached = true
+			return target
+		}
+		state.reached = false
+
+		// SmoothCD, Game Programming Gems 4 (responds like 12db filter)
+		var omega = 4 / smoothTime; // changed from 2 to 4 to better match linear time
+		var x = omega * deltaTime;
+		var exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x); // approx of exp(-x)
+		var change = current - target;
+		var temp = (currentVel + omega * change) * deltaTime;
+		state.vel = (currentVel - omega * temp) * exp;
+		state.value = target + (change + temp) * exp;
+
+		return state.value
+	}
+	return state
+}
+
+smoother2 = function(startVal, gate, gateVelThreshold) {
+	var r = {}
+	var a = smoother(startVal === undefined ? undefined : startVal[0], gate, gateVelThreshold)
+	var b = smoother(startVal === undefined ? undefined : startVal[1], gate, gateVelThreshold)
+	r.reset   = (x, v   ) => {
+		a.reset  (x === undefined ? undefined : x[0], v === undefined ? undefined : v[0]);
+		b.reset  (x === undefined ? undefined : x[1], v === undefined ? undefined : v[1]);
+		r.value = [a.value, b.value] ; r.vel = [a.vel, b.vel] ; r.reached = a.reached && b.reached;
+	}
+	r.process = (x, y, z) => {
+		a.process(x[0], y, z);
+		b.process(x[1], y, z);
+		r.value = [a.value, b.value] ; r.vel = [a.vel, b.vel] ; r.reached = a.reached && b.reached;
+		return r.value;
+	}
+	return r
+}
+
+
+return { smoother : smoother, smoother2 : smoother2 }
+
+#}
+
+#####
+
+#{ js 
+
+
+function roundedRectAndCircle(x, y, w, h, radius, circleX, circleY, circleRadius, reactDistance, pointsPerPixel = 1 )
+{
+    const sdSphere = (p, c, r) => {
+        const dx = p[0] - c[0];
+        const dy = p[1] - c[1];
+        return Math.sqrt(dx * dx + dy * dy) - r;
+    };
+
+    const sdRoundedBox = (p, center, size, rad) => {
+        const qx = Math.max(Math.abs(p[0] - center[0]) - size[0] + rad, 0.0);
+        const qy = Math.max(Math.abs(p[1] - center[1]) - size[1] + rad, 0.0);
+        const d = Math.sqrt(qx * qx + qy * qy);
+        return d - rad;
+    };
+
+    const smin = (a, b, k) => {
+        k *= 16.0 / 3.0;
+        const x = (b - a) / k;
+        const g = (x > 1.0) ? x : (x < -1.0) ? 0.0 : (x + 1.0) * (x + 1.0) * (3.0 - x * (x - 2.0)) / 16.0;
+        return b - k * g;
+    };
+
+    const rectCenter = [x + w / 2, y + h / 2];
+    const rectSize = [w / 2, h / 2];
+    const circleCenter = [circleX, circleY];
+	const optimizeSq = Math.pow(reactDistance * 16.0 / 3.0 + circleRadius, 2)
+    
+    const map = (p) => {
+        const dRect = sdRoundedBox(p, rectCenter, rectSize, radius);
+        const dCircle = sdSphere(p, circleCenter, circleRadius);
+        return smin(dRect, dCircle, reactDistance);
+    };
+
+    const mapC = (p) => sdSphere(p, circleCenter, circleRadius);
+    const mapR = (p) => sdRoundedBox(p, rectCenter, rectSize, radius);
+
+    const calcNormal = (p, map) => {
+        const epsilon = 0.0001; 
+        const dx =  map([p[0] + epsilon, p[1]]) - map([p[0] - epsilon, p[1]]);
+        const dy = (map([p[0], p[1] + epsilon]) - map([p[0], p[1] - epsilon]));
+        const len = Math.sqrt(dx * dx + dy * dy);
+        return len < 1e-6 ? [0, 1] : [dx / len, dy / len];
+    };
+
+    const projectPointsToSurface = (origPts, outPts, mapFn, normalFn, iterations, opt) => {
+        for (let i = 0; i < origPts.length; i += 2) {
+
+			if(opt) {
+				const dx = origPts[i    ] - circleX
+				const dy = origPts[i + 1] - circleY
+				if(dx * dx + dy * dy > optimizeSq) {
+					outPts.push(origPts[i], origPts[i + 1]);
+					continue;
+				}
+			}
+
+            let currentP = [origPts[i], origPts[i + 1]];
+            const normal = normalFn(currentP);
+            for (let j = 0; j < iterations; j++) {
+                const d = mapFn(currentP);
+                if (d > 0) break;
+                currentP[0] -= normal[0] * d;
+                currentP[1] -= normal[1] * d;
+            }
+            outPts.push(currentP[0], currentP[1]);
+        }
+    };
+
+    const line = (pts, count, x1, y1, x2, y2) => {
+        for (let i = 0; i < count; i++) {
+            const t = i / (count - 1);
+            pts.push(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t);
+        }
+    };
+    const corner = (pts, count, cx, cy, r, startAngle) => {
+        for (let i = 0; i < count; i++) {
+            const t = i / (count - 1);
+            const angle = startAngle + t * 0.5 * Math.PI;
+            pts.push(cx + Math.cos(angle) * r, cy + Math.sin(angle) * r);
+        }
+    };
+    const circle = (pts, count, cx, cy, r) => {
+        for (let i = 0; i < count; i++) {
+            const angle = 2 * Math.PI - (i / count) * 2 * Math.PI; 
+            pts.push(cx + Math.cos(-angle) * r, cy + Math.sin(-angle) * r);
+        }
+    };
+
+    const rectOrigPts = [];
+    const circOrigPts = [];
+
+    const segmentW = w - 2 * radius;
+    const segmentH = h - 2 * radius;
+    const cornerCircumference = 2 * Math.PI * radius;
+    const circleCircumference = 2 * Math.PI * circleRadius;
+
+    const numPtsSide = Math.max(2, Math.ceil(segmentW * pointsPerPixel));
+    const numPtsVert = Math.max(2, Math.ceil(segmentH * pointsPerPixel));
+    const numPtsCorner = Math.max(2, Math.ceil(cornerCircumference / 4 * pointsPerPixel));
+    const numPtsCircle = Math.ceil(circleCircumference * pointsPerPixel);
+
+    line(rectOrigPts, numPtsSide, x + radius, y, x + w - radius, y);
+    corner(rectOrigPts, numPtsCorner, x + w - radius, y + radius, radius, 1.5 * Math.PI);
+    line(rectOrigPts, numPtsVert, x + w, y + radius, x + w, y + h - radius);
+    corner(rectOrigPts, numPtsCorner, x + w - radius, y + h - radius, radius, 0);
+    line(rectOrigPts, numPtsSide, x + w - radius, y + h, x + radius, y + h);
+    corner(rectOrigPts, numPtsCorner, x + radius, y + h - radius, radius, 0.5 * Math.PI);
+    line(rectOrigPts, numPtsVert, x, y + h - radius, x, y + radius);
+    corner(rectOrigPts, numPtsCorner, x + radius, y + radius, radius, Math.PI);
+
+    circle(circOrigPts, numPtsCircle, circleX, circleY, circleRadius);
+
+    const N = 32; // Number of iterations to move the point to the surface.
+    let pts = []    
+    projectPointsToSurface(rectOrigPts, pts, map, x => calcNormal(x, mapR), N, true);
+    pts.push(undefined)
+    pts.push(undefined)
+    projectPointsToSurface(circOrigPts, pts, map, x => calcNormal(x, mapC), N);
+
+    return pts
+}
+
+	return { roundedRectAndCircle : roundedRectAndCircle }
+#}
+
+#####
+
+#{ js 
+
+
+const timeSeriesRecorder = (getTimeFunc, maxHistoryInSeconds) => {
+  const samples = [];
+  let maxHistorySeconds = maxHistoryInSeconds;
+  let isStopped = false;
+  let timeAtStop = 0;
+
+  const cleanup = () => {
+    const cutoffTime = getTimeFunc() - maxHistorySeconds;
+    let i = 0;
+    while (i < samples.length && samples[i][0] < cutoffTime)
+      i++;
+    if (i > 1)
+      samples.splice(0, i - 1);
+  };
+
+  return {
+    cleanup,
+    isStable: () => samples.length <= 1,
+    setCapacity: capacity => maxHistorySeconds = capacity,
+    start: () => {
+      if (isStopped) {
+        isStopped = false;
+        const timeOffset = getTimeFunc() - timeAtStop;
+        for (let i = 0; i < samples.length; i++) {
+          samples[i][0] = samples[i][0] - timeOffset;
+        }
+        timeAtStop = 0;
+      }
+    },
+    stop: () => {
+      if (!isStopped) {
+        isStopped = true;
+        timeAtStop = getTimeFunc();
+      }
+    },
+    createSampler: () => {
+      let lastIndex = samples.length > 0 ? samples.length - 1 : -1;
+      return {
+        sample: (secondsAgo) => {
+          const referenceTime = isStopped ? timeAtStop : getTimeFunc();
+          const targetTime = referenceTime - secondsAgo;
+          let startIndex = samples.length - 1;
+          
+          if (lastIndex >= 0 && lastIndex < samples.length && samples[lastIndex][0] >= targetTime) 
+              startIndex = lastIndex;
+          
+          for (let i = startIndex; i >= 0; i--) {
+            if (samples[i][0] <= targetTime) {
+              lastIndex = i;
+              return samples[i][1];
+            }
+          }
+
+		//if(samples.length > 0) {
+		//		lastIndex = samples.length - 1;
+        //     	return samples[lastIndex][1];
+		//  }
+		  
+          lastIndex = -1;
+          return undefined;
+        }
+      };
+    },
+    pushSampleAtCurrentTime: (number) => {
+      if (isStopped) {
+        throw new Error("Cannot push samples while recorder is stopped");
+      }
+      const currentTime = getTimeFunc();
+      
+      if (samples.length > 0 && samples[samples.length - 1][0] === currentTime) 
+        samples[samples.length - 1][1] = number;
+      else
+        samples.push([currentTime, number]);
+      
+      cleanup();
+    }
+  };
+};
+
+return { timeSeriesRecorder : timeSeriesRecorder }
+
+
 #}
 
 #####
@@ -643,7 +978,35 @@
 		element.addEventListener('touchstart', touchUpdate, false);
 		element.addEventListener('touchmove', touchUpdate, false);
 		element.addEventListener('touchend', touchUpdate, false);
-		
+
+		var handleFocusLoss = function(e) {
+			var mp = getMousePos(e || {clientX: 0, clientY: 0}); 
+			var releasedMouse = false;
+			for(var k in mdiMouseButtons) {
+				if(k !== '__id__' && mdiMouseButtons[k]) {
+					statusChange(k, offset({x:mp.x, y:mp.y}), false); 
+					mdiMouseButtons[k] = undefined;
+					releasedMouse = true;
+				}
+			}
+
+			if (releasedMouse) {
+				document.removeEventListener('mousemove', mousemove, false);
+				document.removeEventListener('mouseup', mouseup, false);
+				mdiMouseMove = false;
+			}
+
+			for(var id in activeFingers) {
+				var v = activeFingers[id]
+				if(id !== '__id__' && v) {
+					statusChange(id, offset(activeFingers[id]), false);
+					activeFingers[id] = undefined; 
+				}
+			}
+		};
+
+		window.addEventListener('blur', handleFocusLoss, false);
+		document.addEventListener('mouseleave', handleFocusLoss, false); 		
 	}
 
 	var canvasQuality = 1
