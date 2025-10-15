@@ -77,7 +77,7 @@
 #{ js return { tableToUri          : function (t) {
 			var out = []
 			for(var k in t) {
-				if(k !== '__id__' && t[k] != undefined) {
+				if(t[k] != undefined) {
 					out.push(encodeURIComponent(k) + '=' + encodeURIComponent(t[k]))
 				}
 			}
@@ -681,6 +681,7 @@ const timeSeriesRecorder = (getTimeFunc, maxHistoryInSeconds) => {
   return {
     cleanup,
     isStable: () => samples.length <= 1,
+    stableValue: () => samples.length > 0 ? samples[0][1] : undefined,
     setCapacity: capacity => maxHistorySeconds = capacity,
     start: () => {
       if (isStopped) {
@@ -894,12 +895,10 @@ return { timeSeriesRecorder : timeSeriesRecorder }
 		var mousemove = function(e) {
 			var k, v, mp = getMousePos(e)
 			for(k in mdiMouseButtons) {
-				if(k !== '__id__') {
-					v = mdiMouseButtons[k]
-					if(v) {
-						posChange(k, offset({x:mp.x, y:mp.y}), {x:mp.x - prevMPos[0], y:mp.y - prevMPos[1]})
-					}					
-				}
+				v = mdiMouseButtons[k]
+				if(v) {
+					posChange(k, offset({x:mp.x, y:mp.y}), {x:mp.x - prevMPos[0], y:mp.y - prevMPos[1]})
+				}					
 			}
 			prevMPos = [mp.x, mp.y]
 			preventDefault(e)
@@ -915,7 +914,7 @@ return { timeSeriesRecorder : timeSeriesRecorder }
 				statusChange(id, offset({x:mp.x, y:mp.y}), false)
 				mdiMouseButtons[id] = undefined
 			}
-			for(k in mdiMouseButtons) { if(k !== '__id__' && mdiMouseButtons[k]) { i++; break } }
+			for(k in mdiMouseButtons) { if(mdiMouseButtons[k]) { i++; break } }
 			if(i == 0) {
 				document.removeEventListener('mousemove', mousemove, false)
 				document.removeEventListener('mouseup', mouseup, false)
@@ -968,7 +967,7 @@ return { timeSeriesRecorder : timeSeriesRecorder }
 				processed[id] = 1
 			}
 			for(var id in activeFingers) { var v = activeFingers[id]
-				if(id !== '__id__' && v && !processed[id]) {
+				if(v && !processed[id]) {
 					statusChange(id, offset(activeFingers[id]), false) // end
 					activeFingers[id] = undefined
 				}
@@ -983,7 +982,7 @@ return { timeSeriesRecorder : timeSeriesRecorder }
 			var mp = getMousePos(e || {clientX: 0, clientY: 0}); 
 			var releasedMouse = false;
 			for(var k in mdiMouseButtons) {
-				if(k !== '__id__' && mdiMouseButtons[k]) {
+				if(mdiMouseButtons[k]) {
 					statusChange(k, offset({x:mp.x, y:mp.y}), false); 
 					mdiMouseButtons[k] = undefined;
 					releasedMouse = true;
@@ -998,7 +997,7 @@ return { timeSeriesRecorder : timeSeriesRecorder }
 
 			for(var id in activeFingers) {
 				var v = activeFingers[id]
-				if(id !== '__id__' && v) {
+				if(v) {
 					statusChange(id, offset(activeFingers[id]), false);
 					activeFingers[id] = undefined; 
 				}
@@ -1307,9 +1306,9 @@ global unitTestReport = func {
 				cacheImg[loc] = { loaded : false, funcs : [func], image:im, fragHandles: undefined, frag : fragmentInfo }
 				im.onerror = im.onabort = function() { 
 					dwGetImageWrap(function() {
-						for(var i in cacheImg[loc].funcs) { if(i !== '__id__') {							
+						for(var i in cacheImg[loc].funcs) {					
 							cacheImg[loc].funcs[i]("aborted", undefined )
-						}}
+						}
 						cacheImg[loc] = undefined						
 					})
 				}
@@ -1324,9 +1323,9 @@ global unitTestReport = func {
 						} else { throw('fragmentInfo invalid parameter') }
 						
 						cacheImg[loc].fragHandles = h
-						for(var i in cacheImg[loc].funcs) { if(i !== '__id__') {	
+						for(var i in cacheImg[loc].funcs) { 
 							cacheImg[loc].funcs[i](undefined, cacheImg[loc].fragHandles )
-						}}	
+						}	
 					})			 
 				}
 				im.src = loc

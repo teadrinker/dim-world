@@ -13,7 +13,7 @@ dw_g_createRuntime = function(prefix, dnativeGlobal) {
 
 	// globalMeta should have orderId / meta connections /  functionCallCount
 	var globalEnum = {}
-	var enumGlobals = function(f ) { for(var k in globalEnum) { if(k !== '__id__') { f(k) } } }
+	var enumGlobals = function(f ) { for(var k in globalEnum) f(k) }
 	var getGlobal = function(k   ) { return dnativeGlobal[prefix + k] }
 	var setGlobal = function(k, v) { /*dw_g_trace('sg '+k+' '+(v.toString().substr(0,10))) ; */ dnativeGlobal[prefix + k] = v ; globalEnum[k] = true }
 	newRuntime.getGlobal = getGlobal
@@ -23,9 +23,7 @@ dw_g_createRuntime = function(prefix, dnativeGlobal) {
 	var registerGlobals = function(o, meta) {
 		if(typeof o == 'object') {
 			for(var k in o) {
-				if(k !== '__id__') {
-					newRuntime.setGlobal(k, o[k], meta)					
-				}
+				newRuntime.setGlobal(k, o[k], meta)					
 			}
 		}
 	}	
@@ -266,11 +264,9 @@ var js_createIoLib = function(prefix) {
 				if(typeof data == 'object') {
 					var datastr = ''
 					for(var k in data) {
-						if(k !== '__id__') {
-							var v = data[k]
-							if(typeof v != 'string') { func('wrong type for '+k) ; return }
-							datastr += k + '=' + encodeURIComponent(v)							
-						}
+						var v = data[k]
+						if(typeof v != 'string') { func('wrong type for '+k) ; return }
+						datastr += k + '=' + encodeURIComponent(v)							
 					}
 					data = datastr
 				}
@@ -391,13 +387,11 @@ var js_createIoLib = function(prefix) {
 				}
 			} else {
 				for(var k in o) {
-					if(k != '__id__') {
-						if(o[k] == undefined) {
-						//	delete o[k]  // this breaks some javascript objects (removed to enable tracing of three.js objects) 
-						} else { 
-							if(f(k) == 'break') {
-								return k
-							}
+					if(o[k] == undefined) {
+					//	delete o[k]  // this breaks some javascript objects (removed to enable tracing of three.js objects) 
+					} else { 
+						if(f(k) == 'break') {
+							return k
 						}
 					}
 				} 			
