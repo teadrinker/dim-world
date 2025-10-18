@@ -190,7 +190,7 @@ through a kind of operator-overloading by naming-convention:
 ### Standard Library Philosophy
 To make the overall code simpler and more portable,
 global functions are preferred over member functions
-for all basic types. (defined in dw_io_simple.js)
+for all basic types. (defined in dw_runtime.js)
 
 	len(myArray)
 	push(myArray, 'newValue')

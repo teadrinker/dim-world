@@ -1551,7 +1551,7 @@ api spineBlock_createReactiveExpression = func ns, codeTree {
 
 			// removed
 
-			assert(subObjs[id], '!=', nil)
+			// assert(subObjs[id], '!=', nil)
 			remove(subObjs[id])
 			subObjs[id] = nil
 		})
@@ -2435,9 +2435,9 @@ api spineComp_def = func _ns, _args, _returnVal {
 				later(func{
 					handle = sctx.runSubLines(_ns, instanceRoot, func id, codeTreeArray, parentExpr, tmpPrevExpr {
 						trace(spine, 'def:Instantiate create subexpressions')
-						if ns.blockId == 1009 {
-							print('SILLL')
-						}
+					//	if ns.blockId == 1009 {
+					//		print('SILLL')
+					//	}
 						sctx.createBlocksFromCodeTreeArray(id, codeTreeArray, instanceRoot, tmpPrevExpr)
 					})
 				})
@@ -3088,7 +3088,7 @@ api spineComp_delay = func ns, args, returnVal {
 	intervalHandle = nil
 	delayTime = uninitialized
 	customTime = uninitialized
-	getCustomTime = func { customTime == uninitialized ? getTime() : customTime }
+	getCustomTime = func { customTime == uninitialized ? frameTime() : customTime }
 	inp = nil
 
 	delaycomp_everyframe = func {
@@ -3097,8 +3097,9 @@ api spineComp_delay = func ns, args, returnVal {
 			for item in inp.currentItems {
 				item.rec.cleanup()
 				val = item.sampler.sample(delayTime)
+				// print('val '..val..' '..item.rec.isStable())
 				set(item.rvDst, isFiniteNumber(val) ? val : uninitialized)
-				allStable = allStable and item.rec.isStable() 
+				allStable = allStable and (item.rec.isStable() and item.rec.stableValue() == val) 
 			}
 			if allStable {
 				remove(intervalHandle)
@@ -3125,6 +3126,7 @@ api spineComp_delay = func ns, args, returnVal {
 		} 
 		val = get(item.rvSrc)
 		if isFiniteNumber(val) {
+			// print('pusssh')
 			item.rec.pushSampleAtCurrentTime(val)
 		}
 		if intervalHandle == nil { intervalHandle = onInterval(0, delaycomp_everyframe)	}
@@ -3133,6 +3135,9 @@ api spineComp_delay = func ns, args, returnVal {
 	inp = spine_createRecursiveValueConnection(args, 0, {def = uninitialized}, returnVal, onAnyChange)
 	b = spine_createValueConnection           (args, 1, {def = uninitialized}, func b { delayTime  = b.get() ; update(true) })	
 	c = spine_createValueConnection           (args, 2, {def = uninitialized}, func c { customTime = c.get() ; update() })	
+
+	delaycomp_everyframe()
+
 	return {
 		remove = func { set(returnVal, uninitialized) ; remove(inp) ; remove(b) ; remove(c) ; remove(intervalHandle) }
 	}
@@ -3146,7 +3151,7 @@ api spineComp_delay_singlenumber = func ns, args, returnVal {
 	delayTime = uninitialized
 	customTime = uninitialized
 
-	rec = timeSeriesRecorder(func { customTime == uninitialized ? getTime() : customTime }, 10)
+	rec = timeSeriesRecorder(func { customTime == uninitialized ? frameTime() : customTime }, 10)
 	sampler = rec.createSampler()
 
 	delaycomp_everyframe = func {
@@ -3240,7 +3245,7 @@ api spineComp_createSmooth = func reverseAlt {
 
 		if inp == nil { return }
 		amtVal = amt.get()
-		frameT = frameTime()
+		frameT = frameDeltaTime()
 		for id, item in inp.currentItems {
 			cur = curVals[id]
 			if item.val == 'no argument' {
@@ -3295,7 +3300,7 @@ api spineComp_createSmooth = func reverseAlt {
 		if cur == nil or amtVal == 0 {
 			cur = dst
 		} else {
-			cur = cur + (1-exp(-pi*2*frameTime()/amtVal)) * (dst - cur) 
+			cur = cur + (1-exp(-pi*2*frameDeltaTime()/amtVal)) * (dst - cur) 
 		}
 		set(returnVal, cur)		
 	})
@@ -3408,10 +3413,16 @@ api spine_vec2_vec2_wrap = func inner_forward, inner_backward {
 
 #####
 
-api spineComp_frameTime = func ns, args, returnVal {
-	intervalHandle = onInterval(0, func {
-		set(returnVal, frameTime())
-	})
+api spineComp_deltaTime = func ns, args, returnVal {
+
+	intervalHandle = newFrameEvent.register(func {
+		set(returnVal, frameDeltaTime())
+	})	
+
+	// intervalHandle = onInterval(0, func {
+	// 	set(returnVal, frameDeltaTime())
+	// })
+
 	return {
 		remove = func { remove(intervalHandle) }
 	}
@@ -3424,12 +3435,17 @@ first_time = nil
 api spineComp_time = func ns, args, returnVal {
 
 	if first_time == nil {
-		first_time = getTime()
+		first_time = frameTime()
 	}
 
-	intervalHandle = onInterval(0, func {
-		set(returnVal, getTime() - first_time)
+	intervalHandle = newFrameEvent.register(func {
+		set(returnVal, frameTime() - first_time)
 	})
+
+	// intervalHandle = onInterval(0, func {
+	// 	set(returnVal, frameTime() - first_time)
+	// })
+
 	return {
 		remove = func { remove(intervalHandle) }
 	}
@@ -3437,6 +3453,7 @@ api spineComp_time = func ns, args, returnVal {
 
 #####
 
+// legacy / remove
 api spineComp_getTime = func ns, args, returnVal {
 	intervalHandle = onInterval(0, func {
 		set(returnVal, getTime() )
@@ -3498,7 +3515,7 @@ api spineComp_state = func ns, args, returnVal {
 api spineComp_delta = func ns, args, returnVal {
 
 	v0 = spine_createRecursiveValueConnection(args, 0, {def = 'no argument'}, returnVal)
-	prevFrameTime = 1/60
+	prevFrameDeltaTime = 1/60
 	intervalHandle = onInterval(0, func {
 		if v0 == nil { return }
 		for item in v0.currentItems {
@@ -3506,11 +3523,11 @@ api spineComp_delta = func ns, args, returnVal {
 				item.prevVal = nil
 			} else {
 				if item.prevVal == nil { item.prevVal = item.val }
-				set(item.rvDst, (item.val - item.prevVal)/prevFrameTime)
+				set(item.rvDst, (item.val - item.prevVal)/prevFrameDeltaTime)
 				item.prevVal = item.val			
 			}
 		}
-		prevFrameTime = frameTime()		
+		prevFrameDeltaTime = frameDeltaTime()		
 	})
 	return {
 		remove = func { remove(intervalHandle) ; remove(v0) ; v0 = nil }
@@ -3520,12 +3537,12 @@ api spineComp_delta = func ns, args, returnVal {
 /*
 	v0 = spine_createValueConnection(args, 0, {def = 0})
 	prevVal = v0.get()
-	prevFrameTime = 1/60
+	prevFrameDeltaTime = 1/60
 	intervalHandle = onInterval(0, func {
 		curVal = v0.get()
-		set(returnVal,(curVal-prevVal)/prevFrameTime)
+		set(returnVal,(curVal-prevVal)/prevFrameDeltaTime)
 		prevVal = curVal
-		prevFrameTime = frameTime()
+		prevFrameDeltaTime = frameDeltaTime()
 	})
 	return {
 		remove = func { remove(intervalHandle) ; remove(v0) }
@@ -3539,7 +3556,7 @@ api spineComp_integrate = func ns, args, returnVal {
 	v1 = spine_createValueConnection(args, 1, {def = 0})	    
 	v0 = spine_createValueConnection(args, 0, {def = 0})
 	intervalHandle = onInterval(0, func {
-		v1.set(v1.get() + v0.get()*frameTime())
+		v1.set(v1.get() + v0.get()*frameDeltaTime())
 	})
 	return {
 		remove = func { remove(intervalHandle) ; remove(v0) ; remove(v1) }
@@ -3637,7 +3654,7 @@ api spineComp_onAnim = func ns, args, returnVal {
 
 #####
 
-api spineComp_wrapSingleNumberArg = func innerFunc, defa {
+api spineComp_wrap1NumberArg = func innerFunc, defa {
 	return func ns, args, returnVal {
 		v = spine_createValueConnection(args, 0, {def = defa}, func v { 
 			set(returnVal, isFiniteNumber(v.get()) ? innerFunc(v.get()) : uninitialized )
@@ -3650,12 +3667,12 @@ api spineComp_wrapSingleNumberArg = func innerFunc, defa {
 
 #####
 
-api spineComp_wrapDoubleNumberArg = func innerFunc, def0, def1 {
+api spineComp_wrap2NumberArg = func innerFunc, def0, def1 {
 	return func ns, args, returnVal {
 		v0 = nil
 		v1 = nil
-		updateF = func {
-			if v0 and v1 {
+		updateWrap2 = func {
+			if v1 {
 				val0 = v0.get()
 				val1 = v1.get()
 				if isFiniteNumber(val0) and isFiniteNumber(val1) {
@@ -3665,15 +3682,43 @@ api spineComp_wrapDoubleNumberArg = func innerFunc, def0, def1 {
 				}
 			}
 		}
-		v0 = spine_createValueConnection(args, 0, {def = def0}, updateF)	
-		v1 = spine_createValueConnection(args, 1, {def = def1}, updateF)
-		updateF()	
+		v0 = spine_createValueConnection(args, 0, {def = def0}, updateWrap2)	
+		v1 = spine_createValueConnection(args, 1, {def = def1}, updateWrap2)
+		updateWrap2()	
 		return {
 			remove = func { remove(v0) ; remove(v1)  }
 		}
 	}
 }
 
+#####
+
+api spineComp_wrap3NumberArg = func innerFunc, def0, def1, def2 {
+	return func ns, args, returnVal {
+		v0 = nil
+		v1 = nil
+		v2 = nil
+		updateWrap3 = func {
+			if v2 {
+				val0 = v0.get()
+				val1 = v1.get()
+				val2 = v2.get()
+				if isFiniteNumber(val0) and isFiniteNumber(val1) and isFiniteNumber(val2) {
+					set(returnVal, innerFunc(v0.get(), v1.get(), v2.get()) )	
+				} else {
+					set(returnVal, uninitialized)
+				}
+			}
+		}
+		v0 = spine_createValueConnection(args, 0, {def = def0}, updateWrap3)	
+		v1 = spine_createValueConnection(args, 1, {def = def1}, updateWrap3)
+		v2 = spine_createValueConnection(args, 2, {def = def2}, updateWrap3)
+		updateWrap3()	
+		return {
+			remove = func { remove(v0) ; remove(v1)  }
+		}
+	}
+}
 
 #####
 
@@ -3712,7 +3757,7 @@ api spineComp_keyDown = func ns, args, returnVal {
 		if curName != nil { releaseHook(curName, returnVal) }
 		curName = v0.get()
 		keyHooks[curName] = keyHooks[curName] or []
-		push(keyHooks[curName], returnVal)
+		push(keyHooks[curName], returnVal) // todo need 'readonly' (single-writer functionality)
 	})	
 
 	return { remove = func { remove(v0) ; if curName != nil { releaseHook(curName, returnVal) } } }
@@ -3790,6 +3835,7 @@ api createSpineApp = func options {
 			reactiveRect          = codeInput.rect
 			defaultHeight         = codeWindowSize.h
 			statePaneH            = statePaneH
+			onChangedPane         = options.onChangedPane
 			changedFromCss        = func { codeInput.rect.lastWriter == codeInput }
 			changedFromPageResize = func { codeInput.rect.lastWriter == options.pageSize }
 			clickEvent            = options.embed ? func { setURL(findAndReplace(findAndReplace(getURL(), 'embed=1', ''), 'pane=-','pane='), true) } : nil
@@ -3842,47 +3888,50 @@ api createSpineApp = func options {
 
 	codeCtx.setInstanceRoot('run', nil, func newRootObj {
 		globs = injectComponents(newRootObj.rootExpression, {
-			def       = spineComp_def
-			return    = spineComp_return
-			for       = spineComp_for
-			if        = spineComp_if 
-			state     = spineComp_state
-			trace     = spineComp_trace 
-			// floor     = spineComp_createRoundOrFloor(0)
-			// round     = spineComp_createRoundOrFloor(0.5)
-			floor     = spine_wrapRecursive(createRoundOrFloor(0))
-			round     = spine_wrapRecursive(createRoundOrFloor(0.5))
-			clamp     = spineComp_clamp
-			mix       = spineComp_mix
-			gensaw    = spineComp_createAnimationGenerator(func x { x }) 
-			gensin    = spineComp_createAnimationGenerator(func x { sin(x*pi*2) }) 
-			gencos    = spineComp_createAnimationGenerator(func x { cos(x*pi*2) }) 
-			time      = spineComp_time
-			getTime   = spineComp_getTime // remove, uses very large value in seconds 
-			frameTime = spineComp_frameTime
-			sign      = spineComp_wrapSingleNumberArg(sign, uninitialized)
-			abs       = spineComp_wrapSingleNumberArg(abs,  uninitialized)
-			sin       = spineComp_wrapSingleNumberArg(sin,  uninitialized)
-			cos       = spineComp_wrapSingleNumberArg(cos,  uninitialized)
-			pow       = spineComp_wrapDoubleNumberArg(pow,  uninitialized, uninitialized)
-			atan2     = spineComp_wrapDoubleNumberArg(atan2,uninitialized, uninitialized)
-			min       = spineComp_wrapDoubleNumberArg(min,  uninitialized, uninitialized)
-			max       = spineComp_wrapDoubleNumberArg(max,  uninitialized, uninitialized)
-			rotate    = spineComp_rotate
-			toPolar   = spine_vec2_vec2_wrap(toPolar, fromPolar)
-			fromPolar = spine_vec2_vec2_wrap(fromPolar, toPolar)
+			def          = spineComp_def
+			return       = spineComp_return
+			for          = spineComp_for
+			if           = spineComp_if 
+			state        = spineComp_state
+			trace        = spineComp_trace 
+			floor        = spine_wrapRecursive(createRoundOrFloor(0))
+			round        = spine_wrapRecursive(createRoundOrFloor(0.5))
+			clamp        = spineComp_clamp
+			mix          = spineComp_mix
+			gensaw       = spineComp_createAnimationGenerator(func x { x }) 
+			gensin       = spineComp_createAnimationGenerator(func x { sin(x*pi*2) }) 
+			gencos       = spineComp_createAnimationGenerator(func x { cos(x*pi*2) }) 
+			time         = spineComp_time
+			deltaTime    = spineComp_deltaTime
+			sign         = spineComp_wrap1NumberArg(sign,  uninitialized)
+			abs          = spineComp_wrap1NumberArg(abs,   uninitialized)
+			sin          = spineComp_wrap1NumberArg(sin,   uninitialized)
+			cos          = spineComp_wrap1NumberArg(cos,   uninitialized)
+			pow          = spineComp_wrap2NumberArg(pow,   uninitialized, uninitialized)
+			atan2        = spineComp_wrap2NumberArg(atan2, uninitialized, uninitialized)
+			min          = spineComp_wrap2NumberArg(min,   uninitialized, uninitialized)
+			max          = spineComp_wrap2NumberArg(max,   uninitialized, uninitialized)
+			linearstep   = spineComp_wrap3NumberArg(linearstep,  uninitialized, uninitialized, uninitialized)
+			smoothstep   = spineComp_wrap3NumberArg(smoothstep,  uninitialized, uninitialized, uninitialized)
+			smootherstep = spineComp_wrap3NumberArg(smootherstep,uninitialized, uninitialized, uninitialized)
+			rotate       = spineComp_rotate
+			toPolar      = spine_vec2_vec2_wrap(toPolar, fromPolar)
+			fromPolar    = spine_vec2_vec2_wrap(fromPolar, toPolar)
+			integrate    = spineComp_integrate
+			smooth       = spineComp_createSmooth(true)
+			magnitude    = spineComp_magnitude
+			delay        = spineComp_delay 
+			random       = spineComp_random     // todo : improve implementation
+			keyDown      = spineComp_keyDown    // should not be in core?
+
+			pi   	     = create(pi) 
+			tau  	     = create(pi * 2) 
+
+			getTime      = spineComp_getTime // remove, uses very large value in seconds 
 			// delta     = spineComp_delta
-			integrate = spineComp_integrate
 			// integral  = spineComp_integral
-			random    = spineComp_random
-			smooth    = spineComp_createSmooth(true)
 			// smooth2   = spineComp_createSmooth(true)
 			// onAnim    = spineComp_onAnim
-			magnitude = spineComp_magnitude
-			keyDown   = spineComp_keyDown 
-			delay     = spineComp_delay 
-			pi   	  = create(pi) 
-			tau  	  = create(pi * 2) 
 		})
 
 		runRoot = newRootObj.rootExpression ; print('RUNROOT!')

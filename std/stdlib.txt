@@ -2326,11 +2326,13 @@ api standardScheduler = createScheduler()
 api delay = standardScheduler.delay
 api onInterval = standardScheduler.onInterval
 api killTimer = remove
+api newFrameEvent = createCallbackList()
 
 standardSchedulerLastTime = getTime()
 lastDiff = 1/10000
-// api frameTime = func { 1/60 } 
-api frameTime = func { clamp(lastDiff, 0.00000001, 1/5) } // don't report zero frame time or fps lower than 5
+// api frameDeltaTime = func { 1/60 } 
+api frameDeltaTime = func { clamp(lastDiff, 0.00000001, 1/5) } // don't report zero frame time or fps lower than 5
+api frameTime = func { standardSchedulerLastTime } 
 api flushTimers = func {
 	t = getTime()
 	diff = t - standardSchedulerLastTime
@@ -2339,8 +2341,9 @@ api flushTimers = func {
 			diff = diff + 0.000001 // hack: ensure frametimes are unique
 		}
 		lastDiff = diff
-		standardScheduler.flush(diff)
 		standardSchedulerLastTime = t
+		newFrameEvent.sendCallbacks() 
+		standardScheduler.flush(diff)
 	}
 }
 
@@ -6363,20 +6366,37 @@ api inputHitTestPointToPoint = func a, b, inputFuzzMarginSquared, radius {
 
 api LocalDrawContext = class parentSysDrawable, remoteDrawContext {
 
-//	drw // global draw context
+/*
+
+This currently does nothing, but prepared to be a kind of transform stack
+(but in declarative version, it would be uiContext instances in the block tree,
+resulting in something similar to how transforms work in game engines)
+
+most performant impl alternative would be:
+	* drop potential perspective support
+	* add setTransform(a,b,c,d,e,f) to basicDraw interface (and use native canvas impl transforms)
+	* let this context handle input transform only
+
+*/
+
 
 	inpM  = [1,0,0,1,0,0]
 	inpIm = [1,0,0,1,0,0]
 
-	pixM  = [1,0,0,1,0,0]
-	pixIm = [1,0,0,1,0,0]
+//	pixM  = [1,0,0,1,0,0]
+//	pixIm = [1,0,0,1,0,0]
 
 
-	inputFuzzMargin = 50 
+	inputFuzzMargin = 50  // extend ui area of components, good for touch interaction of smaller objects
+
+
+/*
+
 	minCapHeight = 0.05
 	minXHeight = 0.03
 
 	localM = []
+
 	expose updateLocalMatrix = func x, y, sx, sy, hx, hy, rot {
 		m = t2dTranslate(-hx, -hy)
 		if sx != 1 or sy != 1 { m = combine2dTransforms(m, t2dScale(sx, sy)  ) }
@@ -6385,7 +6405,6 @@ api LocalDrawContext = class parentSysDrawable, remoteDrawContext {
 		localM = m
 	}
 
-
 	transformListeners = llCreate('prev', 'next')
 	expose hookTransformChange = func f {
 		item = { f = f }
@@ -6393,8 +6412,10 @@ api LocalDrawContext = class parentSysDrawable, remoteDrawContext {
 		item.remove = func { llUnlink(item, 'prev', 'next') }
 		return item
 	}
+*/
 
-	/*
+
+/*
 	expose createLayoutable = func interface { // rvMin, rvMax,
 		// get prev layoutable using namespace
 	} 
@@ -6465,14 +6486,14 @@ api LocalDrawContext = class parentSysDrawable, remoteDrawContext {
 	}
 
 	expose getInputFuzzMargin  = func { inputFuzzMargin }
-	expose getMinCapHeight     = func { minCapHeight }
-	expose getMinXHeight       = func { minXHeight }
-	expose pixelSnap           = func p { p = apply2dTransform (pixM, p) ; p[0] = floor(p[0]) ; p[1] = floor(p[1]) ; apply2dTransform (pixIm, p) }   
+//	expose getMinCapHeight     = func { minCapHeight }
+//	expose getMinXHeight       = func { minXHeight }
+//	expose pixelSnap           = func p { p = apply2dTransform (pixM, p) ; p[0] = floor(p[0]) ; p[1] = floor(p[1]) ; apply2dTransform (pixIm, p) }   
 	expose fromInput           = func s { apply2dTransform (inpIm, s) }
 	expose fromInputScaleOnly  = func s { apply2dScale     (inpIm, s) } // interface assumes uniform scale (needs pos to support perspective)
 	expose toInput             = func s { apply2dTransform (inpM,  s) }
 	expose toInputScaleOnly    = func s { apply2dScale     (inpM,  s) } // interface assumes uniform scale (needs pos to support perspective)
-	expose toInputScalar       = func s { s * inpM[0]                 } // interface assumes uniform scale, current impl assumes no rotation!
+	expose toInputScalar       = func s { s * inpM[0]                 } // interface assumes uniform scale, current impl assumes no rotation!, maybe not use matrices? or at least also story scale multiplier
 
 	debugCount = 0
 	expose createDrawable = func {
@@ -6595,6 +6616,9 @@ api createSimpleGuiSystem = func basicDraw {
 
 #####
 
+// keep this abstraction clean from reactive values?
+// would be simpler with reactive values, but also less ergonomic...
+
 api createUIElement = func options {
 	ui = options.ui or gGui
 	ctx = options.drawContext or gGui.getRootDrawContext()
@@ -6706,9 +6730,11 @@ api createUIElement = func options {
 		remove(element.drawBindings)
 		element.drawBindings = ctx.bindUpdateFunction(items, updateFunc)
 	}
-	clientEvents = options.onInit(element, ctx) if options.onInit
+	if options.onInit {
+		clientEvents = options.onInit(element, ctx) or {}
+	}
 	element_remove = func { 
-		remove(clientEvents.onRemove)
+		clientEvents.onRemove() if clientEvents.onRemove
 		remove(element.drawBindings)
 		remove(inputHandle)
 	}
@@ -6749,6 +6775,7 @@ api draggableDividerAndBackground = func options {
 			dragHandlePos = self.getPosition()
 			dragHandlePosSaved = self.getPosition()
 			warpAtEdge = func x { mix(-8, 0, smoothstep(0, 30, x)) } // if bottom of rect is at y==0 : offset -8
+			border = 4  // looks nicer if text is cut slightly earlier than bg 
 			
 			getPaneOffsetY = func { 
 				h = rH
@@ -6758,10 +6785,9 @@ api draggableDividerAndBackground = func options {
 			}
 
 			self.bindDrawables([bg, icon], func {
-				// print('draw '..frameTime())
+				// print('draw '..frameDeltaTime())
 				pos = smoothXY.value
 				extraW = 20 // just to hide top rounded rect corners
-				border = 4  // looks nicer if text is cut slightly earlier than bg 
 				rectY = getPaneOffsetY() - extraW
 				rectH = rH + extraW + border
 
@@ -6787,7 +6813,7 @@ api draggableDividerAndBackground = func options {
 			})
 						
 			onInterval(0, func {
-				dt = frameTime()
+				dt = frameDeltaTime()
 				smoothDown      .process(self.isDown() ? 1 : 0, 0.05 * sm, dt)
 				smoothDown2     .process(self.isDown() ? 1 : 0, 0.25 * sm, dt)
 				smoothPaneHidden.process(paneHidden    ? 1 : 0, 0.55 * sm, dt)
@@ -6829,6 +6855,7 @@ api draggableDividerAndBackground = func options {
 				if newH != curH or getPaneOffsetY() != curY or options.changedFromPageResize and options.changedFromPageResize() {
 					rH = newH
 					set(reactiveRect, [0, getPaneOffsetY(), rW, rH], self) 
+					options.onChangedPane([0, getPaneOffsetY() + rH + border]) if options.onChangedPane // in future, use negative values to indicate bottom/right-pinned panes
 					bg.needDraw()
 				} 				
 

@@ -170,7 +170,9 @@ func ns, args, returnVal {
 
 #####
 
-api spineComp_createUiRect = func ns, args, returnVal {
+api spineComp_createUiRect = func isBox { // box uses center position
+
+func ns, args, returnVal {
 
 	_this = {}
 
@@ -238,6 +240,11 @@ api spineComp_createUiRect = func ns, args, returnVal {
 			drawBindings = coordCtx.bindUpdateFunction([drwRect], func {
 				tmpSize = mSize.get()
 				tmpPos = mPos.get()
+				if isBox {
+					// box uses center position
+					tmpPos[0] = tmpPos[0] - tmpSize[0]/2
+					tmpPos[1] = tmpPos[1] - tmpSize[1]/2
+				}
 				drwRect.update('rect', {x = tmpPos[0], y = tmpPos[1], w=tmpSize[0], h=tmpSize[1], color = valueToColor(mCol.get()) })
 			})	
 			drwRect.needDraw()
@@ -252,10 +259,21 @@ api spineComp_createUiRect = func ns, args, returnVal {
 			margin = coordCtx.getInputFuzzMargin()
 
 			// polygon check instead of rect - we want to support rotated and 3D perspective transforms
-			quad2 = coordCtx.toInput([ppos[0] + size[0], ppos[1]])
-			quad3 = coordCtx.toInput([ppos[0] + size[0], ppos[1] + size[1]])
-			quad4 = coordCtx.toInput([ppos[0], ppos[1] + size[1]])
-			dist = distToQuad(pos[0], pos[1], margin, posIS[0], posIS[1], quad2[0], quad2[1], quad3[0], quad3[1], quad4[0], quad4[1])
+
+			dist = nil
+
+			if isBox {
+				quad1 = coordCtx.toInput([ppos[0] - size[0]/2, ppos[1] - size[0]/2])
+				quad2 = coordCtx.toInput([ppos[0] + size[0]/2, ppos[1] - size[0]/2])
+				quad3 = coordCtx.toInput([ppos[0] + size[0]/2, ppos[1] + size[1]/2])
+				quad4 = coordCtx.toInput([ppos[0] - size[0]/2, ppos[1] + size[1]/2])
+				dist = distToQuad(pos[0], pos[1], margin, quad1[0], quad1[1], quad2[0], quad2[1], quad3[0], quad3[1], quad4[0], quad4[1])
+			} else {
+				quad2 = coordCtx.toInput([ppos[0] + size[0], ppos[1]])
+				quad3 = coordCtx.toInput([ppos[0] + size[0], ppos[1] + size[1]])
+				quad4 = coordCtx.toInput([ppos[0], ppos[1] + size[1]])
+				dist = distToQuad(pos[0], pos[1], margin, posIS[0], posIS[1], quad2[0], quad2[1], quad3[0], quad3[1], quad4[0], quad4[1])
+			}
 			if dist != nil {
 				// reduce priority of large rects (good for touch input vs small items)
 				// definition of small is hardoded: 30 units
@@ -298,7 +316,48 @@ api spineComp_createUiRect = func ns, args, returnVal {
 
 	return _this
 }
+}
 
+#####
+
+
+// arg names?
+//   0,1       
+//   from, to
+//   p1, p2
+//   pos, pos2
+//   pos, end
+
+api spineComp_line = func ns, args, returnVal {
+	
+	createUIElement({
+		position = [0, 0]
+		hitInput = 'circle'
+		draggable = true
+		onInit = func self, ctx {
+			line = ctx.createDrawable()
+			mFrom = spine_createVec2Conn       (args, 'from' , {def = [370,370] }, func { if line { line.needDraw() } })
+			mTo   = spine_createVec2Conn       (args, 'to'   , {def = [430,430] }, func { if line { line.needDraw() } })
+			mCol  = spine_createValueConnection(args, 'color', {def = '#FFF'  }, func { if line { line.needDraw() } })
+			mWidth= spine_createValueConnection(args, 'width', {def = 1         }, func { if line { line.needDraw() } })
+			self.bindDrawables([line], func {
+				v1 = mFrom.get()
+				v2 = mTo.get()
+				line.update('line', {x1 = v1[0], y1 = v1[1], x2=v2[0] , y2 = v2[1], color = valueToColor(mCol.get()), width = mWidth.get() })
+			})
+			line.needDraw()
+			return {
+				onRemove = func {
+					remove(mFrom)	
+					remove(mTo)	
+					remove(mCol)	
+					remove(mWidth)				
+				}
+			}			
+		}
+	})
+
+}
 
 #####
 
@@ -344,16 +403,22 @@ createSpineApp({
 	fontSize        = urlConfig.fontsize ? toNumber(urlConfig.fontsize) : nil
 	embed           = urlConfig.embed == '1'
 
-	code = '\n\nrun\n  point pos = [400, 400]'
-	pageSize = rvResize
-	paneBackground = draggableDividerAndBackground
-	isAnyDown = gGui.isAnyDown
+	code            = '\n\nrun\n  point pos = [400, 400]'
+	pageSize        = rvResize
+	paneBackground  = draggableDividerAndBackground
+	isAnyDown       = gGui.isAnyDown
+
+// todo offset draw area based on pane position
+//	onChangedPane   = func paneExtent { gGui.getRootDrawContext().setOffset(paneExtent) } 
+
 	onRun = func app, block {
 		guiComponents = app.injectComponents(block, {
 			uiContext        = spineComp_createUiContext
 			point            = spineComp_createUiPoint(6)
 			circle           = spineComp_createUiPoint(50)
-			rect             = spineComp_createUiRect
+			rect             = spineComp_createUiRect()
+			box              = spineComp_createUiRect(true)
+			line             = spineComp_line
 			background       = spineComp_background
 			rgb              = wrap4NumberToString(func x,y,z,w { '#'..rgbToHex(x,y,z,w) },[uninitialized, uninitialized, uninitialized, 1])
 			hsv              = wrap4NumberToString(func x,y,z,w { '#'..hsvToHex(x,y,z,w) },[uninitialized, 1, 1, 1])
