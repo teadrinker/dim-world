@@ -334,8 +334,9 @@ var js_createIoLib = function(prefix) {
 
 		var laterl = []
 		var reentryblock = false
-		funcs['later'] = function(fnc) { laterl.push(fnc) }
-		funcs['flushLater'] = function(v) {
+		funcs['later'] = function(fnc, id) { if(id !== undefined) { laterl[id] = ()=>{} } laterl.push(fnc) ; return laterl.length - 1 }
+		funcs['cancelLater'] = function(id) { laterl[id] = ()=>{} }
+		funcs['flushLater'] = function() {
 			if(reentryblock) { sysTrace("Warning flushLater() re-entry, skipping...") ; return }  // firefox alerts can cause reentry
 			reentryblock = true
 			for(var i = 0; i < laterl.length ; i++) { 
@@ -355,8 +356,9 @@ var js_createIoLib = function(prefix) {
 
 		funcs['alert'] = function(str) { alert(str === undefined ? "<nil>" : ( str == "" ? "<empty string>" : str.toString())) }
 		funcs['split'] = function(str, by) { return str.split(by) } // strings by token:   split("into these four words", " ")   return ["into", "these" ...
-		funcs['push'] = function(a, v, i)	{ if(i != undefined) a.splice(i,0,v); else a.push(v) } 
-		
+		funcs['join'] = function(str, by) { return str.join(by||'') } 
+		funcs['push'] = function(a, v, i)	{ if(i != undefined) a.splice(i,0,v); else a.push(v) }
+
 		var isArray = Array.isArray || function(obj) { return Object.prototype.toString.call(obj) === '[object Array]' }
 
 		funcs['len']  = function(o) {
@@ -447,9 +449,9 @@ dw_g_boot = function(prefix) {
 	var G = function(name)    { return window.self[(prefix+name)] }
 	var S = function(name, v) { return window.self[(prefix+name)] = v }
 
-	S('profilingInfo', { currentFrameId : 1, frames : [], numFramesToTriggerSwap : 120, funcInfo : {}, currentFrame :    { id : 1, t1 : dw_g_perfTime() }   })
-//	S('profilingEnabled', true)
-//	S('profilingFunctionsEnabled', true)
+	//S('profilingInfo', { currentFrameId : 1, frames : [], numFramesToTriggerSwap : 120, funcInfo : {}, currentFrame :    { id : 1, t1 : dw_g_perfTime() }   })
+	//S('profilingEnabled', true)
+	//S('profilingFunctionsEnabled', true)
 
 	var precompiled = !(window.dw_g_app_main === undefined)
 
@@ -509,13 +511,12 @@ dw_g_boot = function(prefix) {
 	}
 	var frameId = 1
 	var failedConsecutiveFrames = 0
-	var fullscreenCanvas
 	var dwUpdate
 	dwUpdate = function() {
 		var res = G('tryCall')(function() {
 //		try {
 
-			if(failedConsecutiveFrames < 16) {
+			if(failedConsecutiveFrames < 16) { 
 				requestAnimFrame(dwUpdate, document.getElementById(prefix+'canvas_area_canvas'))
 			}
 
@@ -560,14 +561,13 @@ dw_g_boot = function(prefix) {
 					if(statsFunc) { statsFunc(frames, funcInfo) }
 				}
 				frameId++;
-				profInfo.currentFrame = frameId		
 				profInfo.currentFrame = { t0 : tmpTime, t1 : dw_g_perfTime(), id : frameId }
 			}
 
 
 			failedConsecutiveFrames = 0
 //		} catch(err) {
-		})
+		}, undefined, -1, -1, 'dwUpdate')
 		if(res.error) {
 			failedConsecutiveFrames++
 			if(failedConsecutiveFrames > 8) { S('gDebugConsoleSize', 'big') }

@@ -402,6 +402,8 @@ createSpineApp({
 	hideCode        = urlConfig.hidecode == '1'
 	fontSize        = urlConfig.fontsize ? toNumber(urlConfig.fontsize) : nil
 	embed           = urlConfig.embed == '1'
+	syncUrlInterval = urlConfig.syncurl ? toNumber(urlConfig.syncurl) : nil
+	fixedFps        = urlConfig.fps ? toNumber(urlConfig.fps) : nil
 
 	code            = '\n\nrun\n  point pos = [400, 400]'
 	pageSize        = rvResize

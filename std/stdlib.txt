@@ -22,11 +22,7 @@ if gParserContext != nil {
 #{ js return { sorted     : function(a, f)    { if(f && a.length > 1) { var tmp = f(a[0],a[1]) ; if(typeof tmp !== 'number') throw('sorted incorrect sortingfunc')      } return a.slice(0).sort(f)} } #}   #####
 #{ js return { sortInPlace: function(a, f)    { if(f && a.length > 1) { var tmp = f(a[0],a[1]) ; if(typeof tmp !== 'number') throw('sortInPlace incorrect sortingfunc') } return a.sort(f)         } } #}   #####
 
-
-#{ js return { findAndReplace : function(str, find, repl) { return str.split(find).join(repl) } } #}   #####
-
-// regex search is a problem if we want to search paranthesis etc
-//#{ js return { findAndReplace : function(str, find, repl) { return str.replace(new RegExp(find, 'g'), repl) } } #}   #####
+#####
 
 #{ js return { empty      : function(o) { 
 			if(typeof o != 'object') { throw('empty() noimpl '+(typeof o)) }
@@ -152,9 +148,15 @@ api getKeys = func t { out = [] ; tt = type(t) ; if tt == 'table' or tt == 'arra
 
 ////////////////////////////////////////////////////////// GENERIC
 
-        api pi = 3.141592653589793238462643383279502884197
+api findAndReplace = func s, find, repl { join(split(s, find), repl) }
+
+#####   api pi = 3.141592653589793238462643383279502884197
 #####	api square = func x { x*x }
 #####   api mix = func a, b, t { a + t * (b - a) } 
+#####   api isArray  = func a { type(a) == 'array' }  // js opt with generic fallback somehow?
+#####   api isTable  = func a { type(a) == 'table' }  // js opt with generic fallback somehow?
+#####   api isNumber = func a { type(a) == 'number' } // js opt with generic fallback somehow?
+#####   api isString = func a { type(a) == 'string' } // js opt with generic fallback somehow?
 #####
 
 api linearstep = func a, b, x { 
@@ -298,11 +300,20 @@ api selectUsing = func forEachFunc, o, f { out = [] ; forEachFunc(o, func i { tm
 //  selectUsing == mapAndFilterNil
 
 #####
+
 api mapFrom     = func forEachFunc, o, f { out = [] ; forEachFunc(o, func i {                       push(out, f(i))  } ) ; out }
 
 #####
 
-api extend = func dst, src { for k,v in src { dst[k] = v } ; dst }
+api extend        = func dst, src { for k,v in src {                    dst[k] = v   } ; dst }    // new js standard called assign()
+
+#####
+
+api tableFallback = func dst, src { for k,v in src { if dst[k] == nil { dst[k] = v } } ; dst }
+
+#####
+
+api immutableUpdate = func org, key, val { r = {} ; for k,v in org { r[k] = v } ; r[key] = val ; r }   // js (org, key, val) => {...org, [key]: val }
 
 #####
 
@@ -518,6 +529,8 @@ api createComposite = func {
 
 #####
 
+// unused?
+
 api createLaterOnce = func {
 	item = {}
 	waiting = false
@@ -620,7 +633,7 @@ parseToTokensI = func p, joinTok {
 } 
 
 joinTok = {}
-forJoinTok = [ '++', '/*', '*/', '//', '!=', '==', '>=', '<=', '%%', '..', '...', '....', '#{', '#}', '->', '<-', '--', '-->', '<--']  // '===' works too, as long as '==' is also defined (and you could then even add '====' etc)
+forJoinTok = [ '++', '/*', '*/', '//', '!=', '==', '>=', '<=', '%%', '??', '???', '..', '...', '....', '#{', '#}', '->', '<-', '|>', '<|', '=>', '<=', '<->', '<=>', '--', '-->', '<--']  // '===' works too, as long as '==' is also defined (and you could then even add '====' etc)
 
 for _, v in forJoinTok { n = len(v) ; a = substring(v, 0, n - 1) ; b = substring(v, n - 1, n) ; joinTok[a] = joinTok[a] or {} ; joinTok[a][b] = true }
 
@@ -853,11 +866,11 @@ api llUnlink = func l, prev, next {
 }
 
 api llInsert = func l, newLink, prev, next { // insert newLink after l (flip 3rd and 4th arguments to insert before)
-	if newLink[next] {								assert(newLink[prev])
+	if newLink[next] {								assert(newLink[prev], '!=', nil)
 		llUnlink(newLink, prev, next)
 	}
 	nextItem = l[next]
-	assert(nextItem)
+	assert(nextItem, '!=', nil)
 	newLink[next] = nextItem
 	newLink[prev] = l
 	nextItem[prev] = newLink
@@ -1145,11 +1158,13 @@ forSubTree = func o, f1, f2, iterateEach, subnodeToken {
 #####
 
 api delay = nil // fix forward decl
+pushLaterEachChange = false
 
 
 _unhook = func h            {
                               llUnlink(h, 'prev', 'next')
                               llUnlink(h, 'ctxPrev', 'ctxNext')
+                              h.laterHandle = nil
                               h.callFunc = nil
                             }
 _unhookAll = func ctx       { llForEach(ctx._hooks, _unhook, 'ctxPrev', 'ctxNext') }
@@ -1158,11 +1173,18 @@ api unhook = func h      { if h._hooks { _unhookAll(h) } else { _unhook(h) } }
 api hook = func ctx, mv, f, exe { 
 							  assert(mv)
                               h = { };
-                              h.callFunc = func { h.queued = nil ; f() }
+
+							  if pushLaterEachChange {
+							  	h.callFunc = func { h.laterHandle = nil ; f() }
+							  } else {
+								h.callFunc = func { h.queued = nil ; f() }
+							  }
+
                               if not mv.listeners { mv.listeners = llCreate('prev','next') } 
                               llInsert(mv.listeners, h,'next', 'prev') 
                               llInsert(ctx._hooks, h,'ctxNext', 'ctxPrev')
                               if exe { if exe == true { f() } else { print("does this ever happen?") ; exe(f) } }
+							  h.remove = func { print('todo, time to remove unhook() from api?') }
                               h
 		                       }
 api createHookContext = func{
@@ -1202,6 +1224,7 @@ api hookMultiple = func ctx, amv, wait, f, exe {
 
 // reactive value impl
 
+
 idCounter = 1000
 
 api create = func defVal, writer {
@@ -1228,14 +1251,22 @@ api set = func mv, v, writer  {
 		mv.lastWriter = writer
 	} else {
 		if v != mv.v {
+			prevV = mv.v
 			mv.v = v
 			mv.lastWriter = writer
 			it = listeners.next
 			while it != listeners {
-				if not it.queued {
-					later(it.callFunc)
-					it.queued = true
+
+				if pushLaterEachChange {
+					print('set '..prevV..' -> '..v)
+					it.laterHandle = later(it.callFunc, it.laterHandle)
+				} else {
+					if not it.queued {
+						later(it.callFunc)
+						it.queued = true
+					}					
 				}
+
 				it = it.next
 			}
 		}
@@ -2330,12 +2361,21 @@ api newFrameEvent = createCallbackList()
 
 standardSchedulerLastTime = getTime()
 lastDiff = 1/10000
+fixedFps = nil
 // api frameDeltaTime = func { 1/60 } 
+api setFixedFps = func fps { fixedFps = fps}
 api frameDeltaTime = func { clamp(lastDiff, 0.00000001, 1/5) } // don't report zero frame time or fps lower than 5
 api frameTime = func { standardSchedulerLastTime } 
 api flushTimers = func {
-	t = getTime()
-	diff = t - standardSchedulerLastTime
+	t = 0
+	diff = 0
+	if fixedFps == nil {
+		t = getTime()
+		diff = t - standardSchedulerLastTime
+	} else {
+		diff = 1 / fixedFps
+		t = standardSchedulerLastTime + diff
+	}
 	if diff != 0 {
 		if diff == lastDiff {
 			diff = diff + 0.000001 // hack: ensure frametimes are unique
@@ -2741,7 +2781,7 @@ entire = structure + all items
 		}
 		out
 	}
-	parseExpressionR = func it, prec, parseContext, isFunctorArg {
+	parseExpressionR = func it, prec, parseContext, isFunctorArg, injectedBracketScope {
 		t = it.peek()
 //		print('parseExpressionR TOKENPOS '..it.getTokenPos()..' '..t..' '..toStr(isFunctorArg))
 
@@ -2774,11 +2814,11 @@ entire = structure + all items
 			} else {
 				while true {
 					kTmp = tryToParseAssignment(it)
-					tmp = parseExpressionR(it, 0, parseContext) // hardcoded prec  (should be same as parseExpression, right?)
+					tmp = parseExpressionR(it, 0, parseContext, false, injectBracket) // hardcoded prec  (should be same as parseExpression, right?)
 					if it.peek == '=' {
 						if kTmp != nil { throw('unexpected double assignment') }
 						kTmp = tmp
-						tmp = parseExpressionR(it, 0, parseContext) // hardcoded prec  (should be same as parseExpression, right?)
+						tmp = parseExpressionR(it, 0, parseContext, false, injectBracket) // hardcoded prec  (should be same as parseExpression, right?)
 					} 
 
 					if kTmp {
@@ -2804,7 +2844,7 @@ entire = structure + all items
 					e.items = items
 					e.itemsId = generateItemsId()
 				} else if not isFunctorArg and t == '(' {		
-					if tmp.ws1 == nil and tmp.leftBracket == nil { // try to reduce data structure depth
+					if tmp.ws1 == nil and tmp.ws2 == nil and tmp.leftBracket == nil { // try to reduce data structure depth
 						e = tmp
 						tmp.ws1 = ws
 					} else {
@@ -2831,8 +2871,10 @@ entire = structure + all items
 			e.dataId = generateDataId()
 			if parseContext.outData { parseContext.outData[e.dataId] = e.string }
 //			e.data = parseContext.string.callback(text)
-		} else if t and (isDigit(charCodeAt(t,0)) or (t == '-' and isDigit(charCodeAt(it.rawPeek(1),0)) ) ) {
-			if t == '-' {
+		} else if t and (isDigit(charCodeAt(t,0)) or (t == '-' and isDigit(charCodeAt(it.rawPeek(1),0)) ) or parseContext.dataTokens[t]) {
+			if parseContext.dataTokens[t] { // NaN Infinity etc
+				e.number = parseContext.dataTokens[t] 
+			} else if t == '-' {
 				// since we support reverse parsing, we need to handle this case here and not just pass it to unary minus
 				//  (otherwise minuses will accumulate each time the value goes from positive to negative)
 				e.number = -toNumber(it.rawPeek(1))	
@@ -2863,16 +2905,24 @@ entire = structure + all items
 		
 		while true {
 			t = it.peek()
-			if t == nil or t == ',' or t == ';' or t == '=' or t == '-->' or t == '<--' or endBracket[t] { return e } 
+			if	t == nil or
+				parseContext.terminators[t] or 
+				endBracket[t] or 
+				injectedBracketScope and parseContext.injectedBracketTerminators[t]
+			{
+				return e
+			} 
 			
 			op2 = parseContext.binaryOperators[t]
 			if op2 { 
-				if prec < op2.prec {
+				// if prec < op2.prec {
+				if op2.prec > prec or op2.isRightAssoc and op2.prec == prec {
+					nextPrec = op2.prec - (not op2.isRightAssoc and op2.prec == prec ? 1 : 0)
 					it.proceed()
 					e = {
 						left = e
 						token = t
-						right = parseExpressionR(it, op2.prec, parseContext)
+						right = parseExpressionR(it, nextPrec, parseContext)
 					}
 //					e.data = op2.callback(e.left.data, e.right.data)
 				} else {
@@ -2898,53 +2948,77 @@ entire = structure + all items
 
 //	txtToASTCache = {}
 
+
+	api defaultParseContext = func {
+		{
+			brackets = {
+				'('      = { prec = 38, end = ')' } 
+				'['      = { prec = 33, end = ']' } 
+				'{'      = { prec = 34, end = '}' } 
+			}
+			unaryOperators = {
+				'-'      = { prec = 20 }
+			}
+			binaryOperators = {
+				'.'      = { prec = 30 }
+				''		 = { prec = 28 } // functor
+				'^'      = { prec = 22  , isRightAssoc = true}
+				'*'      = { prec = 20 }
+				'**'     = { prec = 20 }
+				'/'      = { prec = 20 }
+				'/%'     = { prec = 20 }
+				'%'      = { prec = 19 }
+				'%%'     = { prec = 19 }
+				'+'      = { prec = 18 }
+				'++'     = { prec = 18 }
+				'-'      = { prec = 18 }
+				'--'     = { prec = 18 }
+				'....'   = { prec = 17 }
+				'...'    = { prec = 17 }
+				'..'     = { prec = 16 }
+				'>'      = { prec = 16 }
+				'<'      = { prec = 16 }
+				'>='     = { prec = 16 }
+				'<='     = { prec = 16 }
+				'=='     = { prec = 16 }
+				'!='     = { prec = 16 }
+				'and'    = { prec = 15 }
+				'or'     = { prec = 15 }
+				'|>'     = { prec = 10 } 
+				'->'     = { prec = 9  } 
+				'<|'     = { prec = 8  } 
+				'<-'     = { prec = 7  } 
+				'=>'     = { prec = 6  , isRightAssoc = true} 
+				'='      = { prec = 5  , isRightAssoc = true}
+				','      = { prec = 4  }
+				'apply'	 = { prec = 1  } // functor apply   remove?  more clear to use apply(func, args) than "(func apply args)"
+			}
+			terminators = {  // note: end-brackets are always terminators
+				','      = 1
+				';'      = 1
+				'-->'    = 1  // remove? (spine-specific so add from there, but also maybe bad idea overall (syntax to push things into differeny levels of the block tree from a single line))
+				'<--'    = 1  // remove? (spine-specific so add from there, but also maybe bad idea overall (syntax to push things into differeny levels of the block tree from a single line))
+			}			
+			injectedBracketTerminators = {
+				'<-'     = 1
+				'->'     = 1
+				'|>'     = 1
+				'<|'     = 1
+			}	
+			dataTokens = { 
+				'NaN'    = 0/0     // add infinity?  parser then needs special treatment for minus...
+				'???'    = 97397421387 
+			}			
+			outData = {}
+		}			
+	}
+
 	api parseToAST = func txt, cb {
 //		calcedBefore = txtToASTCache[txt]
 //		if calcedBefore {
 //			return calcedBefore
 //		}
-		cb = cb or  {
-				brackets = {
-					'(' = { prec = 28, end = ')' } 
-					'[' = { prec = 23, end = ']' } 
-					'{' = { prec = 24, end = '}' } 
-				}
-				unaryOperators = {
-					'-'      = { prec = 10 }
-				}
-				binaryOperators = {
-					'.'      = { prec = 20 }
-					''		 = { prec = 18 } // functor
-					'^'      = { prec = 12 }
-					'*'      = { prec = 10 }
-					'**'     = { prec = 10 }
-					'/'      = { prec = 10 }
-					'/%'     = { prec = 10 }
-					'%'      = { prec = 9  }
-					'%%'     = { prec = 9  }
-					'+'      = { prec = 8  }
-					'++'     = { prec = 8  }
-					'-'      = { prec = 8  }
-					'--'     = { prec = 8  }
-					'....'   = { prec = 7  }
-					'...'    = { prec = 7  }
-					'..'     = { prec = 6  }
-					'>'      = { prec = 6  }
-					'<'      = { prec = 6  }
-					'>='     = { prec = 6  }
-					'<='     = { prec = 6  }
-					'=='     = { prec = 6  }
-					'!='     = { prec = 6  }
-					'and'    = { prec = 5  }
-					'or'     = { prec = 5  }
-					'->'     = { prec = 4  }
-					'<-'     = { prec = 4  }
-					'='      = { prec = 4  }
-					','      = { prec = 3  }
-					'apply'	 = { prec = 2  } // functor apply 
-				}
-				outData = {}
-			}	
+		cb = cb or defaultParseContext()
 		resetParserDataIdGenerator()
 		it = createTokenIterator(parseToTokens(txt))
 		res = parseStatements(it, cb)
@@ -3049,24 +3123,14 @@ entire = structure + all items
 			out
 		}
 
+	testCallbacks = defaultParseContext()
+	testCallbacks.unaryOperators ['-'].callback = func a { -a } 
+	testCallbacks.binaryOperators['' ].callback = func a, b { if a == 'fishFunc' { return b + 1} else { return a + b } } 
+	testCallbacks.binaryOperators[','].callback = func a, b { {l = a, r = b} } 
+	testCallbacks.binaryOperators['+'].callback = func a, b { a + b } 
+	testCallbacks.binaryOperators['*'].callback = func a, b { a * b } 
+	testCallbacks.binaryOperators['='].callback = func a, b { a * b } 
 		
-		testCallbacks = {
-	//		functor = { prec = 3, callback = func a, b { if a == 'fishFunc' { return b + 1} else { return a + b } } }
-			brackets = {
-				'(' = { prec = 10, end = ')', callback = func x { x } } 
-				'' = { callback = func x { x } } 
-			}
-			unaryOperators = {
-				'-'      = { prec = 10, callback = func a { -a } }
-			}
-			binaryOperators = {
-				''		 = { prec = 3, callback = func a, b { if a == 'fishFunc' { return b + 1} else { return a + b } } }
-				','      = { prec =  4, callback = func a, b { {l = a, r = b} } }
-				'+'      = { prec =  8, callback = func a, b { a + b } }
-				'*'      = { prec = 10, callback = func a, b { a * b } }
-				'='      = { prec = 5, callback = func a, b { a * b } }
-			}
-		}	
 
 	testExecuteCallbacksR = nil
 	testExecuteCallbacksR = func t, cb {
@@ -3270,7 +3334,7 @@ nil
 	    return ra.a[k]
 	}
 
-	api isReactiveArray = func x { x and type(x) == 'table' and x.___class == 'reactiveArray' }
+	api isReactiveArray = func x { x and isTable(x) and x.___class == 'reactiveArray' }
 
 
 /*
@@ -3325,7 +3389,7 @@ nil
 		assert(ra.kv == nil)
 		if not ra.id { ra.id = 'I_'..idCounter ; idCounter = idCounter + 1 }
 		kv      = {}
-		tKey    = 'key_' ..ra.id
+		tKey    = 'key_' ..ra.id       // not great, this was created so that reactive values can be linked to multiple reactive arrays
 		tHasKey = 'hasKey_' ..ra.id
 		tPrev   = 'prev_'..ra.id
 		tNext   = 'next_'..ra.id
@@ -3511,7 +3575,8 @@ nil
 
 	    kv = ra.kv
 	    if kv == nil {
-	    	if not isKeyHidden or prevK or nextK or k != len(ra.a) {
+	    	if not isKeyHidden or isString(prevK) or (isNumber(prevK) and k != prevK+1)  or nextK or k != len(ra.a) {
+				// print('convert to keys '..(not isKeyHidden)..(prevK or nextK)..(k != len(ra.a)) )
 	    		raConvertToUseKeys(ra)
 			    kv = ra.kv
 	    	} else {
@@ -3559,7 +3624,6 @@ nil
 		queueNotification(ra, ['inserted', pos, v, true, pos != 0 ? pos - 1 : nil])
 	}
 
-
 	api raMap = func ra, f, f2, keepKeys {
 		out = raCreate()
 		handle = raHook(ra,  func events {
@@ -3569,6 +3633,31 @@ nil
 			}
 		})
 		handle.raMapReturn = out
+		handle
+	}
+
+	// createFunc should return handle with .rv
+	api raMapObj = func ra, returnVal, createFunc, keepKeys {
+		out = raCreate()
+		items = {}
+		handle = raHook(ra,  func events {
+			for i,v in events {
+				key = v[1]
+				if v[0] == 'inserted' {
+					item = createFunc(key, v[2])
+					assert(isTable(item) and item.rv)
+					items[key] = item
+					raInsert(out, key, item.rv, keepKeys and v[3] or true, v[4], v[5])
+				} else if v[0] == 'removed'  {
+					raRemove(out, key)
+					remove(items[key])
+				}
+			}
+		})
+		handle.raMapReturn = out
+		if returnVal {
+			set(returnVal, out)
+		}
 		handle
 	}
 
@@ -3583,6 +3672,36 @@ nil
 		}
 		raRemove(ra, key)
 	}
+
+	raToTextR = nil
+	rvToTextR = func rv, out {
+		v = get(rv)
+		t = type(v)
+		if      t == 'number'      { push(out, ''..v) }
+		else if t == 'string'      { push(out, toJSON(v)) }
+		else if t == 'table' and v.___class == 'reactiveArray'  { raToTextR(v, out) }
+		else if t == 'table' and v.___class == "notReady"       { push(out, "???") } // use ??? for uninitialized
+		else if t == 'nil'         { push(out, "0/*nil*/") }
+		else                       { push(out, "0/*"..type.."*/") }
+	}
+	raToTextR = func ra, out {
+		push(out, '[')
+		first = true
+		raForEachKV(ra, func k, rv {
+			if first {
+				first = false 
+			} else {
+				push(out, ', ')
+			}
+			if k != nil {
+				push(out, ''..k..' = ')
+			}
+			rvToTextR(rv, out)
+		})
+		push(out, ']')
+	}
+	api raToText = func ra { out = [] ; raToTextR(ra, out) ; return join(out) }
+	api rvToText = func rv { out = [] ; rvToTextR(rv, out) ; return join(out) }
 
 	api reactiveToDs = nil
 	api raToDs = func v, json {
@@ -6059,45 +6178,69 @@ glState = class {
 
 #####
 
+// move this to js or make it possible to disable profiling somehow
+// everything we do here to process profiling data will also be profiled!
+
+sortIdle = func a,b { a.idle < b.idle ? 1 : -1 }
+sortDraw = func a,b { a.draw < b.draw ? 1 : -1 }
+sortIdleAndDraw = func a,b { a.idleAndDraw < b.idleAndDraw ? 1 : -1 }
+sortFrameTime = func a,b { a.frameTime < b.frameTime ? 1 : -1 }
+
 global profilingSwap = func frames, funcInfo {
   for _, frame in frames {
+   frame.idle = frame.t3 - frame.t2
+   frame.draw = frame.t4 - frame.t3
    frame.idleAndDraw = frame.t4 - frame.t2
-   frame.frameTime = frame.t5 - frame.t1  // excluding t0 (profilingSwap)
+   frame.frameTime = frame.t5 - frame.t1  // excluding t0 (profilingSwap) -- method to obtain frameTime and excluding profiling is flawed
   }
-  framesByIdleAndDraw = sorted(frames, func a,b { a.idleAndDraw < b.idleAndDraw ? 1 : -1 })
-  framesByFrameTime   = sorted(frames, func a,b { b.frameTime < b.frameTime ? 1 : -1 })  
-  print(formatMs(getMiddle(framesByIdleAndDraw).idleAndDraw)..' ('..formatMs(getLast(framesByIdleAndDraw).idleAndDraw)..' '..formatMs(framesByIdleAndDraw[0].idleAndDraw)..')')
-  print(formatMs(getMiddle(framesByFrameTime  ).frameTime  )..' ('..formatMs(getLast(framesByFrameTime  ).frameTime  )..' '..formatMs(framesByFrameTime  [0].frameTime  )..')')
+
+  framesByIdle        = sorted(frames, sortIdle)
+  framesByDraw        = sorted(frames, sortDraw)
+  framesByIdleAndDraw = sorted(frames, sortIdleAndDraw)
+  framesByFrameTime   = sorted(frames, sortFrameTime)  
+  print('idle         : '..formatMs(getMiddle(framesByIdle).idle)..' ('..formatMs(getLast(framesByIdle).idle)..' '..formatMs(framesByIdle[0].idle)..')')
+  print('draw         : '..formatMs(getMiddle(framesByDraw).draw)..' ('..formatMs(getLast(framesByDraw).draw)..' '..formatMs(framesByDraw[0].draw)..')')
+  print('idleAndDraw  : '..formatMs(getMiddle(framesByIdleAndDraw).idleAndDraw)..' ('..formatMs(getLast(framesByIdleAndDraw).idleAndDraw)..' '..formatMs(framesByIdleAndDraw[0].idleAndDraw)..')')
+  print('frameTime    : '..formatMs(getMiddle(framesByFrameTime  ).frameTime  )..' ('..formatMs(getLast(framesByFrameTime  ).frameTime  )..' '..formatMs(framesByFrameTime  [0].frameTime  )..')')
 
   if funcInfo {
     framesTime = getLast(frames).t5 - frames[0].t1
     maxDiff = -1
     maxDiffItem = nil
+    maxDiffCalls = nil
     maxCalls = -1
     maxCallsItem = nil
     totalCalls = 0
     for ttfId, funcsCol in funcInfo {
       for funcName, funcsCol2 in funcsCol {
-        num = len(funcsCol2.events or [])
-        if num > maxCalls {
-            maxCalls = num
-            maxCallsItem = ttfId..' '..funcName        
-        }
-        for i * num {
-          totalCalls = totalCalls + 1
-          data = funcsCol2.events[i]
-          diff = data.t2 - data.t1
-          if(diff > maxDiff) {
-            maxDiff = diff
-            maxDiffItem = ttfId..' '..funcName
-          }
-        }
+		if	funcName != 'profilingSwap' and 
+			funcName != 'sortIdle' and 
+			funcName != 'sortDraw' and 
+			funcName != 'sortIdleAndDraw' and 
+			funcName != 'sortFrameTime'
+		{
+			num = len(funcsCol2.events or [])
+			if num > maxCalls {
+				maxCalls = num
+				maxCallsItem = {id = ttfId, name = funcName}
+			}
+			for i * num {
+			totalCalls = totalCalls + 1
+			data = funcsCol2.events[i]
+			diff = data.t2 - data.t1
+			if(diff > maxDiff) {
+				maxDiff = diff
+				maxDiffItem = {id = ttfId, name = funcName}
+			}
+		  }
+		}
       }
     }
     
-  print('Total Calls per sec: '..formatNice(totalCalls/framesTime))
-  print(maxCallsItem..': '..formatNice(maxCalls/framesTime)..' '..maxCallsItem..' per sec')
-  print(maxDiffItem..': '..formatMs(maxDiff) )    
+  print('Calls per sec: '..formatNice(totalCalls/framesTime))
+  print('Most called  : '..maxCallsItem.name..', '..formatNice(maxCalls/framesTime)..' per sec ('..maxCallsItem.id..')')
+  print('Largest spike: '..maxDiffItem.name.. ', '..formatMs(maxDiff)..' ('..maxDiffItem.id..')')
+  print('')
   }
 }
 

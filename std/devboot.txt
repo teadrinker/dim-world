@@ -61,6 +61,8 @@ if getGlobal('textToFunc') {
 						{ file = 'std/loadproject.txt' }
 					]
 
+	replace = func s, find, repl { join(split(s, find), repl) }
+
 	duringExecuteQueue = false
 	loadAndExecuteNext = nil
 	loadAndExecuteNext = func id {
@@ -78,8 +80,14 @@ if getGlobal('textToFunc') {
 				throw('loadAndExecuteNext() '..file..' :'..err)
 			}
 			codeSnippetArray = split(str, "#####")
+			lines = 0
 			for k,v in codeSnippetArray {
-				ttfIdForK = ttfId == nil and ('boot_'..file..'_'..k) or ( k == len(codeSnippetArray) - 1 and ttfId or (ttfId .. '_' .. k) )
+
+//				ttfIdForK = ttfId == nil and ('boot_'..file..'_'..k) or ( k == len(codeSnippetArray) - 1 and ttfId or (ttfId .. '_' .. k) )
+
+				ttfIdForK = ttfId == nil and ('boot_'..(replace(replace(file,'std/',''),'.txt',''))..'_'..lines) or ( k == len(codeSnippetArray) - 1 and ttfId or (ttfId .. '_' .. lines) )
+
+				lines = lines + (len(split(v, '\n')) - 1)
 
 //				substring = getGlobal('substring')
 //				if substring and ttfIdForK == 'main' {
