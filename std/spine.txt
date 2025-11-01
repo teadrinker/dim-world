@@ -8,6 +8,11 @@
 	isReady = func x { x != nil and x.___class != "notReady" }   // isSimple
 //	isReady = func x { x != uninitialized }
 
+	// api spineValToBool = func x { not (x == uninitialized or x == nil) } // old behaviour, 1 for true, nil for false
+	api spineValToBool = func x { 
+		assert(type(x), '!=', 'bool') // we have not yet introduced a bool type...
+		return x == uninitialized or x == nil or x == 0 ? false : true 
+	}
 
 	recreateOnBChange = { +iterateB, +iterateAB, +arrayB, +arrayAB}
 	recreateOnAChange = { +iterateA, +iterateAB, +arrayA, +arrayAB}
@@ -185,20 +190,14 @@
 	}
 
 
-	createExecOperator = func isBinary, supportIteration, IncludeUninitialized, config, innerExec {
+	createExecOperator = func supportIteration, IncludeUninitialized, config, innerExec {
 		adapter = supportIteration ? iterationSupportAdapter : simpleAdapter
 		func ns, aCodeTree, bCodeTree, ec {
 			out = create(uninitialized)
 			bObj = instantiateRec(ns, bCodeTree, ec)
 			aObj = nil
-			if isBinary {
-				assert(aCodeTree != nil)
-				aObj = instantiateRec(ns, aCodeTree, ec)
-			} else {
-				assert(aCodeTree, '==', nil)
-				aObj = { rv = create(0), remove = func {} } // unary minus hack: fix
-				aObj.rv.readOnly = true
-			}
+			assert(aCodeTree != nil)
+			aObj = instantiateRec(ns, aCodeTree, ec)
 			out.__debugCodeTrees = [aCodeTree,bCodeTree]
 			aObj.rv.__debugCodeTree = aCodeTree
 			bObj.rv.__debugCodeTree = bCodeTree
@@ -1057,6 +1056,7 @@ dotOperator = func ns, aCodeTree, bCodeTree, ec {
 
 
 
+
 // support fallback for non-reactive-arrays? (like rvToRaKeyPropertyObj?)
 
 api spine_rvToRaPropertyObj = func ctx, rvToRa, token, inner, removeFunc {
@@ -1213,6 +1213,150 @@ api spine_rvToRaProperty = func ctx, rvToRa, token, options, changedCallback {
 */
 
 
+
+recValConnection = nil
+recValConnection = func ctx, outRv, rv, valueChangeCallback, parentId {
+	
+	raHookHandle = nil
+	id = nil
+
+	rvHandle = hook(ctx, rv, func {
+		v = get(rv)
+		vt = type(v)
+		if vt == 'number' or vt == 'string' or vt == 'nil' {	// isSimple
+
+			if id == nil { id = parentId }
+
+			valueChangeCallback(id, outRv, v, rv)  // id, dstrv, srcval, srcrv
+
+		} else {
+
+			if id != nil {
+				valueChangeCallback(id)
+				id = nil
+			}
+
+			if vt == 'table' and v.___class == 'reactiveArray' {	
+				remove(raHookHandle)
+
+				outRvVal = get(outRv)
+				if not (type(outRvVal) == 'table' and outRvVal.___class == 'reactiveArray') {
+					outRvVal = raCreate()
+					set(outRv, outRvVal)
+				}
+
+				raHookHandle = raForEach(v, func key, rvVal {
+					outRvForKey = raGet(outRvVal, key)
+					if outRvForKey == nil {
+						outRvForKey = create(uninitialized)
+						raInsert(outRvVal, key, outRvForKey)
+					}
+					newId = parentId .. '_@_' .. key
+					userObj = recValConnection(ctx, outRvForKey, rvVal, valueChangeCallback, newId)
+					return {
+						remove = func { if(userObj) { remove(userObj) } ; raRemove(outRvVal, key) }
+					}
+				})
+			}
+		}
+	}, true)
+
+	return {
+		remove = func {
+			remove(raHookHandle)
+			if rvHandle { unhook(rvHandle) ; rvHandle = nil }
+		}
+	}
+}
+
+api spine_createRecursiveValueConnection = func rvToRa, token, options, outRv, itemCallback {
+	obj = createComposite()
+	items = {}
+	obj.currentItems = items
+	// if valueChangeCallback == nil {
+	//	valueChangeCallback = valueChangeCallback or func id, rv, val, rvSrc {
+		valueChangeCallback = func id, rv, val, rvSrc {
+			if rv {
+				if not items[id] {
+					items[id] = createComposite()
+					// items[id] = {} 
+				}
+				items[id].val = val
+				onlyValueChange = items[id].rvSrc == rvSrc and items[id].rvDst == rv
+				if not onlyValueChange {
+					items[id].rvDst = rv			
+					items[id].rvSrc = rvSrc		
+				}
+				if itemCallback != nil {
+					itemCallback(id, items[id], onlyValueChange)
+				}	
+			} else {
+				remove(items[id])
+				items[id] = nil		
+			}
+			return nil
+		}	
+	// }
+
+	ctx = createHookContext()
+	obj.add(ctx)
+	// obj.add(nil, token)
+	innerHandle = nil
+	obj.add(spine_rvToRaProperty(ctx, rvToRa, token, options, func rv {
+
+		remove(innerHandle)
+		items = {}
+		obj.currentItems = items
+		innerHandle = recValConnection(ctx, outRv, rv, valueChangeCallback, 'base')
+		// obj.add(handle, token)
+
+		return nil
+	}))
+
+	return obj
+}
+
+unaryOperator = func debug, forward, backward {
+	func ns, codeTree, ec {
+		obj = createComposite()
+		ctx = obj.add(createHookContext())
+		handle = instantiateRec(ns, codeTree, ec)
+		items = {}
+		unaryCallback = func id, rvDst, val, rvSrc {
+			if rvDst {
+				if items[id] == nil {
+					items[id] = connect(ctx, rvSrc, rvDst, debug, forward, backward)
+				}
+			} else {
+				remove(items[id])
+				items[id] = nil		
+			}
+			return nil
+		}	
+		returnVal = create(uninitialized)
+		obj.add(handle)
+		obj.add(recValConnection(ctx, returnVal, handle.rv, unaryCallback, 'base'))
+		obj.rv = returnVal
+		return obj
+	}
+} 
+
+debugOperator = func ns, aCodeTree, bCodeTree, ec {
+	obj = createComposite()
+	ctx = obj.add(createHookContext())
+	handleA = obj.add(instantiateRec(ns, aCodeTree, ec))
+	handleB = obj.add(instantiateRec(ns, bCodeTree, ec))
+	returnVal = create(uninitialized)
+	obj.add(connect(ctx, handleA.rv, returnVal, "debugOp"))
+	hh = hook(ctx, handleA.rv, func {
+		set(handleB.rv, get(handleA.rv))
+	}, true)
+	obj.add({ remove = func { unhook(hh) } })
+	obj.rv = returnVal
+	return obj
+}
+
+
 // js style function 
 //  (x => (y => x * y))(2)(3)   // should be 6
 
@@ -1279,33 +1423,40 @@ _ = false
 binaryOps = {
 	''		 = { callback = functorOperator } 	
 	'apply'  = { callback = functorOperator } 	
-	'..'     = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '..', opTypeSupport(func a, b { type(a) == 'string' ? a .. b : uninitialized})) }) }
-	'and'    = { callback = createExecOperator(T, _, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b,'and',              (func a, b { a != 0 and b != 0 ? 1 : 0 })) }) }
-	'or'     = { callback = createExecOperator(T, _, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, 'or',              (func a, b { a != 0 or  b != 0 ? 1 : 0 })) }) }
-	'>'      = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '>' , opTypeSupport(func a, b { a >   b ? 1 : 0 })) }) }
-	'<'      = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '<' , opTypeSupport(func a, b { a <   b ? 1 : 0 })) }) }
-	'>='     = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '>=', opTypeSupport(func a, b { a >=  b ? 1 : 0 })) }) }
-	'<='     = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '<=', opTypeSupport(func a, b { a <=  b ? 1 : 0 })) }) }
-	'=='     = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '==', opTypeSupport(func a, b { a ==  b ? 1 : 0 })) }) }
-	'!='     = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '!=', opTypeSupport(func a, b { a !=  b ? 1 : 0 })) }) }
-	'%'      = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '%' , opMod , opMod , nothing, nil)      }) }
-	'%%'     = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '%%', opMod2, opMod2, nothing, nil)      }) }
-	'+'      = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '+' , opAdd, opSub, opSub, nil )      }) }
-	'++'     = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '+' , opAdd, opSub, opSub, nil )      }) }
-	'-'      = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '-' , opSub, opAdd, opSub, true)      }) }
-	'--'     = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '--', opSub, opAdd, opSub, true)      }) }
-	'*'      = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '*' , opMul, opDiv, opDiv, nil )      }) }
-	'**'     = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '**', opMul, opDiv, opDiv, nil )      }) }
-	'/'      = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '/' , opDiv, opMul, opDiv, true)      }) }
-	'^'      = { callback = createExecOperator(T, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '^' , opPow, opPowInvA, opPowInvB, nil)}) }	
+	'..'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '..', opTypeSupport(func a, b { type(a) == 'string' ? a .. b : uninitialized})) }) }
+	'and'    = { callback = createExecOperator(_, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b,'and',              (func a, b { a != 0 and b != 0 ? 1 : 0 })) }) }
+	'or'     = { callback = createExecOperator(_, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, 'or',              (func a, b { a != 0 or  b != 0 ? 1 : 0 })) }) }
+	'>'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '>' , opTypeSupport(func a, b { a >   b ? 1 : 0 })) }) }
+	'<'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '<' , opTypeSupport(func a, b { a <   b ? 1 : 0 })) }) }
+	'>='     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '>=', opTypeSupport(func a, b { a >=  b ? 1 : 0 })) }) }
+	'<='     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '<=', opTypeSupport(func a, b { a <=  b ? 1 : 0 })) }) }
+	'=='     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '==', opTypeSupport(func a, b { a ==  b ? 1 : 0 })) }) }
+	'!='     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '!=', opTypeSupport(func a, b { a !=  b ? 1 : 0 })) }) }
+	'%'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '%' , opMod , opMod , nothing, nil)      }) }
+	'%%'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '%%', opMod2, opMod2, nothing, nil)      }) }
+	'+'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '+' , opAdd, opSub, opSub, nil )      }) }
+	'++'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '+' , opAdd, opSub, opSub, nil )      }) }
+	'-'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '-' , opSub, opAdd, opSub, true)      }) }
+	'--'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '--', opSub, opAdd, opSub, true)      }) }
+	'*'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '*' , opMul, opDiv, opDiv, nil )      }) }
+	'**'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '**', opMul, opDiv, opDiv, nil )      }) }
+	'/'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '/' , opDiv, opMul, opDiv, true)      }) }
+	'^'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '^' , opPow, opPowInvA, opPowInvB, nil)}) }	
+	'|'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '|' , opTypeSupport(func a, b { a  | b })) }) }
+	'&'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '&' , opTypeSupport(func a, b { a  & b })) }) }
+	'~'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '~' , opTypeSupport(func a, b { a  ~ b })) }) }
+	'>>'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '>>', opTypeSupport(func a, b { a >> b })) }) }
+	'<<'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '<<', opTypeSupport(func a, b { a << b })) }) }
 	'='      = { callback = assignmentOperator }	 
 	'.'      = { callback = dotOperator }	
-	'...'    = { callback = createExecOperator(T, T, _, {}, createRangeOpCreator()) }	
-	'....'   = { callback = createExecOperator(T, T, _, {}, createRangeOpCreator(true)) }	
+	'...'    = { callback = createExecOperator(T, _, {}, createRangeOpCreator()) }	
+	'....'   = { callback = createExecOperator(T, _, {}, createRangeOpCreator(true)) }	
+
+	'>>>'    = { callback = debugOperator }
 
 //	'<-'     = { callback = writeOperatorPlain }
-	'<-'     = { callback = createExecOperator(T, T, T, {        }, writeOperator) }
-// 	'->'     = { callback = createExecOperator(T, T, T, {+swapOps}, writeOperator) } // write operator to the right
+	'<-'     = { callback = createExecOperator(T, T, {        }, writeOperator) }
+// 	'->'     = { callback = createExecOperator(T, T, {+swapOps}, writeOperator) } // write operator to the right
  	'->'     = { callback = mapOperator } 
  	'|>'     = { callback = pipeOperator } 
  	'=>'     = { callback = inlineDefOperator } 
@@ -1313,8 +1464,10 @@ binaryOps = {
 
 
 unaryOps = {
-//	'not'    = { callback = func a { print('not - no impl') ; return { remove = func {} } } }
-	'-'      = { callback = createExecOperator(_, T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, 'u-', opSub, opAdd, opSub, true)      })  }	
+	'~'      = { callback = unaryOperator('u~' , func x {  ~x }, func x {  ~x }) }	
+	'-'      = { callback = unaryOperator('u-' , func x {  -x }, func x {  -x }) }	
+	'/'      = { callback = unaryOperator('u/' , func x { 1/x }, func x { 1/x }) }	
+	'not'    = { callback = unaryOperator('not', func x { not spineValToBool(x) ? 1 : 0 }, func x { not spineValToBool(x) ? 1 : 0 }) }	
 }
 
 
@@ -1859,7 +2012,7 @@ api instantiateRec = func ns, t, ec {
 			if t.token {                                // unary op
 				opcode = unaryOps[t.token]
 				if not opcode { throw('no such opcode '..t.token..' '..serialize(t))}
-				ret = opcode.callback(ns, nil, t.right, ec)
+				ret = opcode.callback(ns, t.right, ec)
 			} else {
 				                                    	// redundant bracket
 				ret = instantiateRec(ns, t.right, ec)
@@ -2647,109 +2800,6 @@ api spine_createArrayConnection = func rvToRa, token, options, insertedCallback 
 
 api createIdGenerator = func { i = 1 ; return func { i = i + 1 ; return i } }
 
-#####
-
-recValConnection = nil
-recValConnection = func ctx, outRv, rv, options, valueChangeCallback, parentId {
-	
-	raHookHandle = nil
-	id = nil
-
-	rvHandle = hook(ctx, rv, func {
-		v = get(rv)
-		vt = type(v)
-		if vt == 'number' or vt == 'string' or vt == 'nil' {	// isSimple
-
-			if id == nil { id = parentId }
-
-			valueChangeCallback(id, outRv, v, rv)  // id, dstrv, srcval, srcrv
-
-		} else {
-
-			if id != nil {
-				valueChangeCallback(id)
-				id = nil
-			}
-
-			if vt == 'table' and v.___class == 'reactiveArray' {	
-				remove(raHookHandle)
-
-				outRvVal = get(outRv)
-				if not (type(outRvVal) == 'table' and outRvVal.___class == 'reactiveArray') {
-					outRvVal = raCreate()
-					set(outRv, outRvVal)
-				}
-
-				raHookHandle = raForEach(v, func key, rvVal {
-					outRvForKey = raGet(outRvVal, key)
-					if outRvForKey == nil {
-						outRvForKey = create(uninitialized)
-						raInsert(outRvVal, key, outRvForKey)
-					}
-					newId = parentId .. '_@_' .. key
-					userObj = recValConnection(ctx, outRvForKey, rvVal, options, valueChangeCallback, newId)
-					return {
-						remove = func { if(userObj) { remove(userObj) } ; raRemove(outRvVal, key) }
-					}
-				})
-			}
-		}
-	}, true)
-
-	return {
-		remove = func {
-			remove(raHookHandle)
-			if rvHandle { unhook(rvHandle) ; rvHandle = nil }
-		}
-	}
-}
-
-api spine_createRecursiveValueConnection = func rvToRa, token, options, outRv, itemCallback {
-	obj = createComposite()
-	items = {}
-	obj.currentItems = items
-	// if valueChangeCallback == nil {
-	//	valueChangeCallback = valueChangeCallback or func id, rv, val, rvSrc {
-		valueChangeCallback = func id, rv, val, rvSrc {
-			if rv {
-				if not items[id] {
-					items[id] = createComposite()
-					// items[id] = {} 
-				}
-				items[id].val = val
-				onlyValueChange = items[id].rvSrc == rvSrc and items[id].rvDst == rv
-				if not onlyValueChange {
-					items[id].rvDst = rv			
-					items[id].rvSrc = rvSrc		
-				}
-				if itemCallback != nil {
-					itemCallback(id, items[id], onlyValueChange)
-				}	
-			} else {
-				remove(items[id])
-				items[id] = nil		
-			}
-			return nil
-		}	
-	// }
-
-	ctx = createHookContext()
-	obj.add(ctx)
-	// obj.add(nil, token)
-	innerHandle = nil
-	obj.add(spine_rvToRaProperty(ctx, rvToRa, token, options, func rv {
-
-		remove(innerHandle)
-		items = {}
-		obj.currentItems = items
-		innerHandle = recValConnection(ctx, outRv, rv, options, valueChangeCallback, 'base')
-		// obj.add(handle, token)
-
-		return nil
-	}))
-
-	return obj
-}
 
 #####
 
@@ -2927,14 +2977,6 @@ api spineComp_return = func ns, args, returnVal {
 	return { remove = func { remove(v) ; remove(ctx) } }
 }
 
-#####
-
-// api spineValToBool = func x { not (x == uninitialized or x == nil) } // old behaviour, 1 for true, nil for false
-
-api spineValToBool = func x { 
-	assert(type(x), '!=', 'bool') // we have not yet introduced a bool type...
-	return x == uninitialized or x == nil or x == 0 ? false : true 
-}
 
 #####
 
@@ -4127,6 +4169,9 @@ api spineComp_fallback = func ns, args, returnVal {
 
 #####
 
+
+// note / todo : this is actually a flat-reduce
+//               we actually want a proper one!
 
 api spineComp_createReduce = func initFunc, f, finalFunc, diffReverse {
 	func ns, args, returnVal {

@@ -633,7 +633,7 @@ parseToTokensI = func p, joinTok {
 } 
 
 joinTok = {}
-forJoinTok = [ '++', '/*', '*/', '//', '!=', '==', '>=', '<=', '%%', '??', '???', '..', '...', '....', '#{', '#}', '->', '<-', '|>', '<|', '=>', '<=', '<->', '<=>', '--', '-->', '<--']  // '===' works too, as long as '==' is also defined (and you could then even add '====' etc)
+forJoinTok = [ '++', '/*', '*/', '//', '!=', '==', '>=', '<<', '>>', '>>>', '<=', '%%', '??', '???', '..', '...', '....', '#{', '#}', '->', '<-', '|>', '<|', '=>', '<=', '<->', '<=>', '--', '-->', '<--']  // '===' works too, as long as '==' is also defined (and you could then even add '====' etc)
 
 for _, v in forJoinTok { n = len(v) ; a = substring(v, 0, n - 1) ; b = substring(v, n - 1, n) ; joinTok[a] = joinTok[a] or {} ; joinTok[a][b] = true }
 
@@ -2890,9 +2890,12 @@ entire = structure + all items
 		} else if parseContext.unaryOperators[t] {
 			if not injectBracket { it.proceed() }
 			una = parseContext.unaryOperators[t]
-			e.token = t
-			e.right = parseExpressionR(it, una.prec, parseContext)
-//			e.data = una.callback(e.right.data)
+
+			if una.prec > prec { // this check is not needed for C style syntax (for purist math -2^2 should be -4 but note that this still fails for constants when precedence is lower, as minus is parsed as a part of the number if there is no whitespace between)
+				e.token = t
+				e.right = parseExpressionR(it, una.prec, parseContext)
+	//			e.data = una.callback(e.right.data)
+			}
 
 		} else {
 			if not injectBracket { it.proceed() }
@@ -2915,7 +2918,6 @@ entire = structure + all items
 			
 			op2 = parseContext.binaryOperators[t]
 			if op2 { 
-				// if prec < op2.prec {
 				if op2.prec > prec or op2.isRightAssoc and op2.prec == prec {
 					nextPrec = op2.prec - (not op2.isRightAssoc and op2.prec == prec ? 1 : 0)
 					it.proceed()
@@ -2957,14 +2959,17 @@ entire = structure + all items
 				'{'      = { prec = 34, end = '}' } 
 			}
 			unaryOperators = {
-				'-'      = { prec = 20 }
+				'-'      = { prec = 24 } // note: setting this lower will still fail for constants, as minus is parsed as a part of a number if there is no whitespace between (to avoid accumulating unary minus operators when reverse-parsing) 
+				'/'      = { prec = 24 } // is there a reason programming languages don't have unary div?   seems useful! And also -more symmetrical hehe 
+				'~'      = { prec = 24 } 
+				'not'    = { prec = 24 }
 			}
 			binaryOperators = {
 				'.'      = { prec = 30 }
 				''		 = { prec = 28 } // functor
 				'^'      = { prec = 22  , isRightAssoc = true}
 				'*'      = { prec = 20 }
-				'**'     = { prec = 20 }
+				'**'     = { prec = 20 } // use for complex numbers and matrices? operator overloading is more powerful... 
 				'/'      = { prec = 20 }
 				'/%'     = { prec = 20 }
 				'%'      = { prec = 19 }
@@ -2973,24 +2978,30 @@ entire = structure + all items
 				'++'     = { prec = 18 }
 				'-'      = { prec = 18 }
 				'--'     = { prec = 18 }
-				'....'   = { prec = 17 }
-				'...'    = { prec = 17 }
-				'..'     = { prec = 16 }
-				'>'      = { prec = 16 }
-				'<'      = { prec = 16 }
-				'>='     = { prec = 16 }
-				'<='     = { prec = 16 }
-				'=='     = { prec = 16 }
-				'!='     = { prec = 16 }
-				'and'    = { prec = 15 }
-				'or'     = { prec = 15 }
+				'>>'     = { prec = 17 }
+				'<<'     = { prec = 17 }
+				'....'   = { prec = 16 }
+				'...'    = { prec = 16 }
+				'..'     = { prec = 15 }
+				'>'      = { prec = 15 }
+				'<'      = { prec = 15 }
+				'>='     = { prec = 15 }
+				'<='     = { prec = 15 }
+				'=='     = { prec = 15 }
+				'!='     = { prec = 15 }
+				'&'      = { prec = 14 }
+				'~'      = { prec = 13 }
+				'|'      = { prec = 12 }
+				'and'    = { prec = 11 }
+				'or'     = { prec = 11 }
 				'|>'     = { prec = 10 } 
 				'->'     = { prec = 9  } 
 				'<|'     = { prec = 8  } 
-				'<-'     = { prec = 7  } 
-				'=>'     = { prec = 6  , isRightAssoc = true} 
-				'='      = { prec = 5  , isRightAssoc = true}
-				','      = { prec = 4  }
+				'>>>'    = { prec = 7  } // debug operator
+				'<-'     = { prec = 6  } // write operator
+				'=>'     = { prec = 5  , isRightAssoc = true} 
+				'='      = { prec = 4  , isRightAssoc = true}
+				','      = { prec = 3  }
 				'apply'	 = { prec = 1  } // functor apply   remove?  more clear to use apply(func, args) than "(func apply args)"
 			}
 			terminators = {  // note: end-brackets are always terminators

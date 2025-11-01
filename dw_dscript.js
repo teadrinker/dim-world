@@ -261,8 +261,8 @@ var prepareTokenArrayForScriptParsing = function(ar) {
 		else if(t == '#' && t2 == '{' ) { r.push('#{'); i++ }
 		else if(t == '#' && t2 == '}' ) { r.push('#}'); i++ }
 		else if(t == '?' && t2 == ':' ) { r.push('?:'); i++ }
-//		else if(t == '<' && t2 == '<' ) { r.push('<<'); i++ }
-//		else if(t == '>' && t2 == '>' ) { r.push('>>'); i++ }
+		else if(t == '<' && t2 == '<' ) { r.push('<<'); i++ }
+		else if(t == '>' && t2 == '>' ) { r.push('>>'); i++ }
 		else //if(t != ' ' && t != '\t' )
 			r.push(t)
 	}
@@ -505,6 +505,13 @@ var createParserContext = function(config) {
 		equals:" === ",
 		not:" ! ",
 
+		bwOr:" | ",
+		bwAnd:" & ",
+		bwXor:" ^ ",
+		bwNot:" ~ ",
+		bwShiftL:" << ",
+		bwShiftR:" >> ",
+
 //		_listsize:["", ".length"],					
 		_listliteral: ["[]", "[", "]"],  
 		_tableliteral:["{", " : ", "}"], 
@@ -704,6 +711,13 @@ bvec not(bvec x) logical complement of x
 		equals:" == ",
 		notequals:" ~= ",
 		not:" not ",
+
+		bwOr:" | ",
+		bwAnd:" & ",
+		bwXor:" ~ ",
+		bwNot:" ~ ",
+		bwShiftL:" << ",
+		bwShiftR:" >> ",	
 		
 //		_listsize:["", ".__n"],					
 		_listliteral:["{__n=0}", "{[0]=  ", "}", "  ,__n="],
@@ -762,6 +776,13 @@ bvec not(bvec x) logical complement of x
 		notequals:" != ",
 		equals:" == ",
 		not:" ! ",
+
+		bwOr:" | ",
+		bwAnd:" & ",
+		bwXor:" ^ ",
+		bwNot:" ~ ",
+		bwShiftL:" << ",
+		bwShiftR:" >> ",
 
 //		_listsize:["", ".length"],					
 		_listliteral: ["[]", "[", "]"],  // before PHP 5.4, you need to use array() instead of []. 
@@ -837,6 +858,13 @@ bvec not(bvec x) logical complement of x
 		notequals:" != ",
 		equals:" == ",
 		not:" ! ",
+
+		bwOr:" | ",
+		bwAnd:" & ",
+		bwXor:" ^ ",
+		bwNot:" ~ ",
+		bwShiftL:" << ",
+		bwShiftR:" >> ",
 
 //		_listsize:["", ".length"],					
 		_listliteral: ["[]", "[", "]"],  
@@ -988,6 +1016,13 @@ bvec not(bvec x) logical complement of x
 	var _passB
 	var _passE
 
+	var _bwOr	
+	var _bwAnd	
+	var _bwXor	
+	var _bwNot	
+	var _bwShiftL
+	var _bwShiftR
+
 	var ops = { }
 	
 	var initTokens = function() {
@@ -1046,27 +1081,40 @@ bvec not(bvec x) logical complement of x
 		_false			= it.stringToTok( 'false')			
 		_passB			= it.stringToTok( '#{')			
 		_passE			= it.stringToTok( '#}')		
+		_bwOr			= it.stringToTok( '|' )
+		_bwAnd			= it.stringToTok( '&' )
+		_bwXor			= it.stringToTok( '~' ) // folllow lua rather than C/js
+		_bwNot			= it.stringToTok( '~' )
+		_bwShiftL		= it.stringToTok( '<<')
+		_bwShiftR		= it.stringToTok( '>>')
 
 		ops[_and       ] = { prec : 5  , valueFunc : function(a,b) { return a && b }, universalOp : _and       , internalName : 'and'      }
 		ops[_or        ] = { prec : 5  , valueFunc : function(a,b) { return a || b }, universalOp : _or        , internalName : 'or'       }
 		ops[_andif     ] = { prec : 5  , valueFunc : function(a,b) { return a && b }, universalOp : _andif     , internalName : 'andif'    , internalName2 : 'and'}
 		ops[_orelse    ] = { prec : 5  , valueFunc : function(a,b) { return a || b }, universalOp : _orelse    , internalName : 'orelse'   , internalName2 : 'or' }
 		ops[_fallback  ] = { prec : 5  , valueFunc : function(a,b) { return a || b }, universalOp : _fallback  , internalName : 'fallback' , internalName2 : 'or' }
-		ops[_lessThan  ] = { prec : 6  , valueFunc : function(a,b) { return a <  b }, universalOp : _lessThan  , internalName : 'lessThan' }
-		ops[_moreThan  ] = { prec : 6  , valueFunc : function(a,b) { return a >  b }, universalOp : _moreThan  , internalName : 'moreThan' }
-		ops[_lessEqual ] = { prec : 6  , valueFunc : function(a,b) { return a <= b }, universalOp : _lessEqual , internalName : 'lessEqual'}
-		ops[_moreEqual ] = { prec : 6  , valueFunc : function(a,b) { return a >= b }, universalOp : _moreEqual , internalName : 'moreEqual'}
-		ops[_equals    ] = { prec : 6  , valueFunc : function(a,b) { return a == b }, universalOp : _equals    , internalName : 'equals'   }
-		ops[_notequals ] = { prec : 6  , valueFunc : function(a,b) { return a != b }, universalOp : _notequals , internalName : 'notequals'}
-		ops[_concat    ] = { prec : 7  , valueFunc : function(a,b) { return a +  b }, universalOp : _concat    , internalName : 'concat'   , globalFuncName : 'concat'}
-		ops[_add       ] = { prec : 8  , valueFunc : function(a,b) { return a +  b }, universalOp : _add       , internalName : 'add'      }
-		ops[_sub       ] = { prec : 8  , valueFunc : function(a,b) { return a -  b }, universalOp : _sub       , internalName : 'sub'      }
-		ops[_mod       ] = { prec : 9  , valueFunc : function(a,b) { return a %  b }, universalOp : _mod       , internalName : 'mod'      }
-		ops[_mul       ] = { prec : 10 , valueFunc : function(a,b) { return a *  b }, universalOp : _mul       , internalName : 'mul'      }
-		ops[_div       ] = { prec : 10 , valueFunc : function(a,b) { return a /  b }, universalOp : _div       , internalName : 'div'      }     
-		ops[_pow       ] = { prec : 11 , valueFunc : function(a,b) { return Math.pow(a,b) }, universalOp : _pow, internalName : 'pow'      , globalFuncName : 'pow'}     
+		ops[_bwOr      ] = { prec : 6  , valueFunc : function(a,b) { return a |  b }, universalOp : _bwOr      , internalName : 'bwOr'    }
+		ops[_bwAnd     ] = { prec : 8  , valueFunc : function(a,b) { return a &  b }, universalOp : _bwAnd     , internalName : 'bwAnd'   }
+		ops[_bwXor     ] = { prec : 7  , valueFunc : function(a,b) { return a ^  b }, universalOp : _bwXor     , internalName : 'bwXor'   }
+		ops[_equals    ] = { prec : 9  , valueFunc : function(a,b) { return a == b }, universalOp : _equals    , internalName : 'equals'   }
+		ops[_notequals ] = { prec : 9  , valueFunc : function(a,b) { return a != b }, universalOp : _notequals , internalName : 'notequals'}
+		ops[_lessThan  ] = { prec : 10 , valueFunc : function(a,b) { return a <  b }, universalOp : _lessThan  , internalName : 'lessThan' }
+		ops[_moreThan  ] = { prec : 10 , valueFunc : function(a,b) { return a >  b }, universalOp : _moreThan  , internalName : 'moreThan' }
+		ops[_lessEqual ] = { prec : 10 , valueFunc : function(a,b) { return a <= b }, universalOp : _lessEqual , internalName : 'lessEqual'}
+		ops[_moreEqual ] = { prec : 10 , valueFunc : function(a,b) { return a >= b }, universalOp : _moreEqual , internalName : 'moreEqual'}
+		ops[_bwShiftL  ] = { prec : 11 , valueFunc : function(a,b) { return a << b }, universalOp : _bwShiftL  , internalName : 'bwShiftL' }
+		ops[_bwShiftR  ] = { prec : 11 , valueFunc : function(a,b) { return a >> b }, universalOp : _bwShiftR  , internalName : 'bwShiftR' }
+		ops[_concat    ] = { prec : 12 , valueFunc : function(a,b) { return a +  b }, universalOp : _concat    , internalName : 'concat'   , globalFuncName : 'concat'}
+		ops[_add       ] = { prec : 13 , valueFunc : function(a,b) { return a +  b }, universalOp : _add       , internalName : 'add'      }
+		ops[_sub       ] = { prec : 13 , valueFunc : function(a,b) { return a -  b }, universalOp : _sub       , internalName : 'sub'      }
+		ops[_mod       ] = { prec : 14 , valueFunc : function(a,b) { return a %  b }, universalOp : _mod       , internalName : 'mod'      }
+		ops[_mul       ] = { prec : 14 , valueFunc : function(a,b) { return a *  b }, universalOp : _mul       , internalName : 'mul'      }
+		ops[_div       ] = { prec : 14 , valueFunc : function(a,b) { return a /  b }, universalOp : _div       , internalName : 'div'      }     
+		ops[_pow       ] = { prec : 15 , valueFunc : function(a,b) { return Math.pow(a,b) }, universalOp : _pow, internalName : 'pow'      , globalFuncName : 'pow'}   
+
 	}
-  	var          functionCallPrec = 15
+  	var unaryPrec = 21
+  	var functionCallPrec = 25
 			
 
 	var resolveTypes = function(baseName, argTypes, argCode) {
@@ -2093,8 +2141,9 @@ bvec not(bvec x) logical complement of x
 //			vt += t
 			
 		}
-		else if (t === _not)			{ trace('ParseExpr not '    ); vt += it.proceed(); r = parseExpr(10); v = !r.value; vt = backend.not + r.out }
-		else if	(t === _sub)			{ trace('ParseExpr unary - '); vt += it.proceed(); r = parseExpr(10); v = -r.value; vt = ' - ' + r.out }
+		else if (t === _bwNot)			{ trace('ParseExpr bwNot '  ); vt += it.proceed(); r = parseExpr(unaryPrec); v = ~r.value; vt = backend.bwNot + r.out }
+		else if (t === _not)			{ trace('ParseExpr not '    ); vt += it.proceed(); r = parseExpr(unaryPrec); v = !r.value; vt = backend.not + r.out }
+		else if	(t === _sub)			{ trace('ParseExpr unary - '); vt += it.proceed(); r = parseExpr(unaryPrec); v = -r.value; vt = ' - ' + r.out }
 		else if	(t === _new) 			{
 			trace('ParseExpr new '    )
 
@@ -2505,7 +2554,7 @@ bvec not(bvec x) logical complement of x
 			
 			if(t == undefined || it.peekLineFeed()) { break }
 			
-			else if	(prec <= 10 && t === _squareB || t === _dot)	{ trace('parseExpr access');
+			else if	(prec <= unaryPrec && t === _squareB || t === _dot)	{ trace('parseExpr access');
 				vt += it.proceed();
 				var obj, key
 				if(t === _squareB) {
