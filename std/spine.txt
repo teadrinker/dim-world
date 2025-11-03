@@ -1298,17 +1298,13 @@ api spine_createRecursiveValueConnection = func rvToRa, token, options, outRv, i
 		}	
 	// }
 
-	ctx = createHookContext()
-	obj.add(ctx)
-	// obj.add(nil, token)
-	innerHandle = nil
+	ctx = obj.add(createHookContext())
 	obj.add(spine_rvToRaProperty(ctx, rvToRa, token, options, func rv {
 
-		remove(innerHandle)
+		obj.free('innerHandle')
 		items = {}
 		obj.currentItems = items
-		innerHandle = recValConnection(ctx, outRv, rv, valueChangeCallback, 'base')
-		// obj.add(handle, token)
+		obj.set('innerHandle', recValConnection(ctx, outRv, rv, valueChangeCallback, 'base'))
 
 		return nil
 	}))
@@ -1351,13 +1347,13 @@ debugOperator = func ns, aCodeTree, bCodeTree, ec {
 	hh = hook(ctx, handleA.rv, func {
 		set(handleB.rv, get(handleA.rv))
 	}, true)
-	obj.add({ remove = func { unhook(hh) } })
+	// obj.add({ remove = func { unhook(hh) } }) // no need, just rely on ctx remove
 	obj.rv = returnVal
 	return obj
 }
 
 
-// js style function 
+// arrow function : js style  (a,b,c) => a + b * c 
 //  (x => (y => x * y))(2)(3)   // should be 6
 
 inlineDefOperator = func ns, aCodeTree, bCodeTree, ec {
@@ -1365,6 +1361,10 @@ inlineDefOperator = func ns, aCodeTree, bCodeTree, ec {
 	_returnVal = create( {
 		___functor = func ns_unused, args, returnVal {
 			obj = createComposite()
+			ctx = obj.add(createHookContext())
+
+			// handle arguments
+
 			rvArgsOrder = []
 			rvArgs = {}
 			rvArgDefs = {}
@@ -1392,20 +1392,18 @@ inlineDefOperator = func ns, aCodeTree, bCodeTree, ec {
 				print('spine_inlineDef incorrect arg spec 2')
 			}
 
-			ctx = createHookContext()
-			obj.add(ctx)
-
 			for i, key in rvArgsOrder {
 				connection = connectWithFallback(ctx, nil, rvArgDefs[key], rvArgs[key], "inlineDef connect")
-				obj.add()
 				obj.add(spine_rvToRaProperty(ctx, args, i, nil, func rv {
 					connection.updatePrimary(rv)
 				}))
 			}
 
-			newEc = tableFallback(rvArgs, ec)
+			// instantiate code
 
-			handle = instantiateRec(ns, bCodeTree, newEc)
+			newEc = tableFallback(rvArgs, ec)
+			handle = instantiateRec(ns, bCodeTree, newEc)   
+
 			obj.add(handle)
 			obj.add(connect(ctx, handle.rv, returnVal, "inlineDef return"))
 			return obj
@@ -1415,6 +1413,55 @@ inlineDefOperator = func ns, aCodeTree, bCodeTree, ec {
 	return { rv = _returnVal, remove = func { } }
 }
 
+ternaryOperator = func ns, aCodeTree, bCodeTree, ec {
+	if bCodeTree.token != ':' {
+		print("ERROR! ternary, excpected :    (a ? b : c)")
+		return { rv = create(uninitialized), remove = func { } }
+	}
+	obj = createComposite()
+	ctx = obj.add(createHookContext())
+	handleA = obj.add(instantiateRec(ns, aCodeTree, ec))
+
+	// we could re-use the reactive expressions and not re-instantiate?
+	// but then we'd need to be able to "disable" them somehow
+	// - like remove graphical objects and unhook timers..
+	//   but what about unhook from namespace?
+	//   that's the kind of thing we'd like to avoid doing again...
+	//
+	// handleB = obj.add(instantiateRec(ns, bCodeTree.left, ec))      
+	// handleC = obj.add(instantiateRec(ns, bCodeTree.right, ec))
+
+	returnVal = create(uninitialized)
+	prevB = nil
+	hh = hook(ctx, handleA.rv, func {
+		b = spineValToBool(get(handleA.rv))
+		if b != prevB {
+			prevB = b
+			// print('ternary '..b)
+
+			obj.free('connHandle')
+			inner = instantiateRec(ns, b ? bCodeTree.left : bCodeTree.right, ec)
+			obj.free('innerHandle')
+			obj.set('innerHandle', inner)
+			obj.set('connHandle', connect(ctx, inner.rv, returnVal, "ternaryConn"))
+
+			// re-use
+			// obj.free('connHandle')
+			// obj.set('connHandle', connect(ctx, b ? handleB.rv : handleC.rv, returnVal, "ternaryConn"))
+		}
+	}, true)
+	// obj.add({ remove = func { unhook(hh) } }) // no need, just rely on ctx remove
+	obj.rv = returnVal
+	return obj
+}
+
+
+errorOp = func errorMessage {
+	func ns, aCodeTree, bCodeTree, ec {
+		print(errorMessage)
+		return { rv = create(uninitialized), remove = func { } }
+	}
+}
 
 
 T = true
@@ -1447,6 +1494,8 @@ binaryOps = {
 	'~'      = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '~' , opTypeSupport(func a, b { a  ~ b })) }) }
 	'>>'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '>>', opTypeSupport(func a, b { a >> b })) }) }
 	'<<'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '<<', opTypeSupport(func a, b { a << b })) }) }
+	'?'      = { callback = ternaryOperator }	 
+	':'      = { callback = errorOp("ERROR! (:) Only expected as part of ternary (a ? b : c)") }	 
 	'='      = { callback = assignmentOperator }	 
 	'.'      = { callback = dotOperator }	
 	'...'    = { callback = createExecOperator(T, _, {}, createRangeOpCreator()) }	
@@ -2767,8 +2816,8 @@ api spine_createArrayConnection = func rvToRa, token, options, insertedCallback 
 		hooks = {}
 		handles = {}
 
-		obj.add(nil, 'arrayhook')
-		obj.add(spine_hookResolveRa(ctx, rv, func key, rvVal {    // spine_hookResolveRa issue ?
+		obj.free('arrayhook')
+		obj.set('arrayhook', spine_hookResolveRa(ctx, rv, func key, rvVal {    // spine_hookResolveRa issue ?
 			assert(hooks[key],'==',nil)
 			assert(handles[key],'==',nil)
 
@@ -2788,7 +2837,7 @@ api spine_createArrayConnection = func rvToRa, token, options, insertedCallback 
 				}
 			}
 			
-		}), 'arrayhook')
+		}))
 
 		return nil   // if the key removed, rv will still be a reactive array and set to options.strictDef or options.def 
 	}))
@@ -2928,7 +2977,7 @@ api spineComp_def = func _ns, _args, _returnVal {
 
 
 			} else {
-				print('warning, try to instanciate removed definition')
+				print('warning, try to instantiate removed definition')
 			}
 
 			{

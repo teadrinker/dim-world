@@ -510,17 +510,23 @@ api createComposite = func {
 	objs = {}
 	return {
 		remove = func { for k, v in objs { remove(v) } ; objs = nil }
+		free = func id { remove(objs[id]) ; objs[id] = nil }
+		set = func id, obj { 
+			if objs[id] != nil { print('composite : error, id already set '..id) } // we don't want to delete automatically here, this leads to bugs where things are old items are removed after new is created 
+			objs[id] = obj
+		} 
 		add = func obj, id {
-			if obj != nil and obj.remove == nil {
-				print("CreateComposite : incorrect obj, missing remove func : ")
+			if id != nil { 
+				print("composite : add no longer accepts id, use set(id, obj)")
 			}
-			assert(objs)
-			if id == nil {
-				idcnt = idcnt - 1
-				id = idcnt
-			} else {
-				remove(objs[id])
+			if obj == nil {
+				print("composite : adding nil is not allowed")
 			}
+			if obj.remove == nil {
+				print("composite : incorrect obj, missing remove func : ")
+			}
+			idcnt = idcnt - 1
+			id = idcnt
 			objs[id] = obj
 			return obj
 		}
@@ -763,6 +769,7 @@ api createTokenIterator = func ar { // token iterator and parser of whitespace a
 	getStringForError	= func 		  { r = ''; for i = max(0,pos - 20), pos { if arrayOfTokens[i] { r = r .. arrayOfTokens[i] } } r }
 	peekLineFeed		= func        { parse() ; return parsedNewLine }
 	peek				= func 		  { parse() ; return arrayOfTokens[pos] }
+	peekAhead			= func offset { tmppos = pos ; while arrayOfTokens[tmppos] { if not isWhite(charCodeAt(arrayOfTokens[tmppos],0)) { offset = offset - 1 ; if offset <= 0 { return arrayOfTokens[tmppos] } } tmppos = tmppos + 1 } }  // note, this incorrectly returns comments! 
 	peekWS				= func 		  { parse() ; return ws }
 	rawPeek				= func offset {           return arrayOfTokens[pos + offset] }
 	proceed				= func onlyWS { parse() ; if not onlyWS { pos = pos + 1 ; parsedNewLine = false } wsp = pos ; curws = ws ; ws = nil ; return curws }
@@ -785,6 +792,7 @@ api createTokenIterator = func ar { // token iterator and parser of whitespace a
 		peek				= peek
 		rawPeek				= rawPeek
 		proceed				= proceed
+		peekAhead           = peekAhead
 		peekLineFeed		= peekLineFeed
 		simpleGet			= simpleGet
 		parseQuotedString	= parseQuotedString
@@ -2801,7 +2809,7 @@ entire = structure + all items
 			tmp = nil
 			items = nil
 			if not injectBracket and it.peek() == brack.end { 
-				if not isFunctorArg and t == '(' {
+				if not isFunctorArg and t == '(' and it.peekAhead(2) != '=>' {
 					throw('unclear intent, empty brackets only expected for functor')
 				}
 
@@ -2971,7 +2979,7 @@ entire = structure + all items
 				'*'      = { prec = 20 }
 				'**'     = { prec = 20 } // use for complex numbers and matrices? operator overloading is more powerful... 
 				'/'      = { prec = 20 }
-				'/%'     = { prec = 20 }
+//				'/%'     = { prec = 20 } // drop c style comments to use // for integer division? (lua / python)
 				'%'      = { prec = 19 }
 				'%%'     = { prec = 19 }
 				'+'      = { prec = 18 }
@@ -2997,11 +3005,13 @@ entire = structure + all items
 				'|>'     = { prec = 10 } 
 				'->'     = { prec = 9  } 
 				'<|'     = { prec = 8  } 
-				'>>>'    = { prec = 7  } // debug operator
-				'<-'     = { prec = 6  } // write operator
-				'=>'     = { prec = 5  , isRightAssoc = true} 
-				'='      = { prec = 4  , isRightAssoc = true}
-				','      = { prec = 3  }
+				':'      = { prec = 7 , isRightAssoc = true}
+				'?'      = { prec = 7 , isRightAssoc = true}
+				'=>'     = { prec = 6 , isRightAssoc = true} 
+				'<-'     = { prec = 5  } // write operator
+				'>>>'    = { prec = 4  } // debug operator
+				'='      = { prec = 3  , isRightAssoc = true}
+				','      = { prec = 2  }
 				'apply'	 = { prec = 1  } // functor apply   remove?  more clear to use apply(func, args) than "(func apply args)"
 			}
 			terminators = {  // note: end-brackets are always terminators
@@ -3015,6 +3025,7 @@ entire = structure + all items
 				'->'     = 1
 				'|>'     = 1
 				'<|'     = 1
+				'>>>'    = 1
 			}	
 			dataTokens = { 
 				'NaN'    = 0/0     // add infinity?  parser then needs special treatment for minus...
