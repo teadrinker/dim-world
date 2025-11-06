@@ -1757,47 +1757,7 @@ api createGlobalId = func str {
 
 #####
 
-	api createCallbackList = func {
-		l = nil
-		return {
-			register = func f {
-				l = l or llCreate('prev', 'next')
-				item = {f = f}
-				item.remove = func { llUnlink(item, 'prev', 'next') }
-				llInsert(l, item, 'next', 'prev')
-				return item
-			}
-			sendCallbacks = func {
-				llForEach(l, func item {
-					item.f()
-				}, 'prev', 'next')
-			}
-			remove = func { // this removes all
-				if l != nil {
-					firstItem = llGet(l, 'next')
-					while firstItem {
-						llUnlink(firstItem, 'prev', 'next')
-						firstItem = llGet(l, 'next')
-					}
-					l = nil
-				}
-			}
-		}	
-	}
-
-#####
-
-	api drawEvent = createCallbackList()
-	global guiDraw = func { drawEvent.sendCallbacks() }
-
-#####
-
-    framesN = 0
-	api frameCount = func { framesN }
-	api idleEvent = createCallbackList()
-	global guiIdle = func { framesN = framesN + 1; idleEvent.sendCallbacks() }
-
-#####
+/*
 
 api onInterval = nil
 
@@ -1815,7 +1775,7 @@ api createStateSyncedTree = func {
 		return idToNode[id]
 	}
 	contexts = { }
-	upstreamStateUpdates = { }  // could change this, upstreamStateUpdates[contextId][id]  ->  ctx.upstreamStateUpdates[id] /*for node*/   contexts[contextId].upstreamStateUpdates[id] 
+	upstreamStateUpdates = { }  // could change this, upstreamStateUpdates[contextId][id]  ->  ctx.upstreamStateUpdates[id] for node   contexts[contextId].upstreamStateUpdates[id] 
 	forceFullResync = {}
 	hasUpstreamChanges = func contextId {
 		not empty(upstreamStateUpdates[contextId])
@@ -2082,8 +2042,9 @@ api createStateSyncedTree = func {
 		}
 	})
 
+*/
 	
-/*
+/* NOTES
 
 	     code tree format == each item in plain text
 	BUT  what about diffable state data format? use json?
@@ -2164,6 +2125,7 @@ location.hash='rreg6'
 
 */
 
+/*
 	addContext = func contextId, doPoll {
 		contexts[contextId] = true
 		forceFullResync[contextId] = true
@@ -2214,9 +2176,9 @@ location.hash='rreg6'
 	}
 }
 
+*/
 
-
-/*
+/* NOTES
 
 	sync to a virtual file system -  pure http get access, very good read scaling,
 									 very bad write scaling, full history "forced",
@@ -2311,12 +2273,53 @@ api calcNodeDepthDiff = func stapi, n1, n2 {
 
 gHookContext = createHookContext()
 
+
+
+
 #####
 
+	api createCallbackList = func {
+		l = nil
+		return {
+			register = func f {
+				l = l or llCreate('prev', 'next')
+				item = {f = f}
+				item.remove = func { llUnlink(item, 'prev', 'next') }
+				llInsert(l, item, 'next', 'prev')
+				return item
+			}
+			sendCallbacks = func {
+				llForEach(l, func item {
+					item.f()
+				}, 'prev', 'next')
+			}
+			remove = func { // this removes all
+				if l != nil {
+					firstItem = llGet(l, 'next')
+					while firstItem {
+						llUnlink(firstItem, 'prev', 'next')
+						firstItem = llGet(l, 'next')
+					}
+					l = nil
+				}
+			}
+		}	
+	}
+
+#####
+
+	api drawEvent = createCallbackList()
+	global guiDraw = func { drawEvent.sendCallbacks() }
+
+#####
+
+    framesN = 0
+	api frameCount = func { framesN }
+	api idleEvent = createCallbackList()
+	global guiIdle = func { framesN = framesN + 1; idleEvent.sendCallbacks() }
 
 
-
-
+#####
 
 
 api createScheduler = func {
@@ -2329,9 +2332,9 @@ api createScheduler = func {
 			item
 		}
 	return {
-		delay    = createSchedulerItem
+		delay      = createSchedulerItem
 		onInterval = func time, f { item = createSchedulerItem(time, f) ; item.intt = time ; item }
-		flush    = func time {
+		flush      = func time {
 			t = t + time
 			for i * len(items) {
 				item = items[i]
@@ -2358,42 +2361,73 @@ api createScheduler = func {
 #####
 
 
+api createFrameState = func scheduler, newFrameEvent {
+	lastDiff = 1/10000
+	prevTime = 0
+	fixedFps = nil
+	advanceFrame = func inTime {
+		t = 0
+		diff = 0
 
+		if prevTime == 0 {
+			prevTime = inTime
+		}
 
+		if fixedFps == nil {
+			t = inTime
+			diff = t - prevTime
+		} else {
+			diff = 1 / fixedFps
+			t = prevTime + diff
+		}
 
-api standardScheduler = createScheduler()
+		lastDiff = diff
+		prevTime = t
+		newFrameEvent.sendCallbacks() 
+		assert(diff, '>=', 0)
+		if diff > 0 {
+			scheduler.flush(diff)
+		}
+	}	
+	return {
+		advanceFrame = advanceFrame
+		setFixedFps = func fps { fixedFps = fps}
+		time = func { prevTime }
+		deltaTime = func { clamp(lastDiff, 0.00000001, 1/5) } // don't report zero frame time or fps lower than 5
+	}
+}
+
+#####
+
+api newFrameEvent = createCallbackList()
+standardScheduler = createScheduler()
+standardFrame = createFrameState(standardScheduler, newFrameEvent)
+
 api delay = standardScheduler.delay
 api onInterval = standardScheduler.onInterval
 api killTimer = remove
-api newFrameEvent = createCallbackList()
 
-standardSchedulerLastTime = getTime()
-lastDiff = 1/10000
-fixedFps = nil
-// api frameDeltaTime = func { 1/60 } 
-api setFixedFps = func fps { fixedFps = fps}
-api frameDeltaTime = func { clamp(lastDiff, 0.00000001, 1/5) } // don't report zero frame time or fps lower than 5
-api frameTime = func { standardSchedulerLastTime } 
-api flushTimers = func {
-	t = 0
-	diff = 0
-	if fixedFps == nil {
-		t = getTime()
-		diff = t - standardSchedulerLastTime
-	} else {
-		diff = 1 / fixedFps
-		t = standardSchedulerLastTime + diff
+api setFixedFps = standardFrame.setFixedFps
+api frameDeltaTime = standardFrame.deltaTime
+api frameTime = standardFrame.time
+
+
+api flushTimers = func { standardFrame.advanceFrame(getTime()) }
+
+
+#####
+
+
+inited = false
+api initGlobalTimers = func {
+	
+	if not inited {
+		inited = true
+		idleEvent.register(flushTimers)	
 	}
-	if diff != 0 {
-		if diff == lastDiff {
-			diff = diff + 0.000001 // hack: ensure frametimes are unique
-		}
-		lastDiff = diff
-		standardSchedulerLastTime = t
-		newFrameEvent.sendCallbacks() 
-		standardScheduler.flush(diff)
-	}
+	
 }
+
 
 #####
 
@@ -6476,17 +6510,6 @@ api RemoteDrawContext = class {
 
 #####
 
-inited = false
-api initGlobalTimers = func {
-	if not inited {
-		inited = true
-		idleEvent.register(flushTimers)	
-	}
-}
-
-
-#####
-
 
 
 beforeNextDrawBeginList = []
@@ -6950,7 +6973,6 @@ api draggableDividerAndBackground = func options {
 			}
 
 			self.bindDrawables([bg, icon], func {
-				// print('draw '..frameDeltaTime())
 				pos = smoothXY.value
 				extraW = 20 // just to hide top rounded rect corners
 				rectY = getPaneOffsetY() - extraW
@@ -6977,8 +6999,8 @@ api draggableDividerAndBackground = func options {
 
 			})
 						
-			onInterval(0, func {
-				dt = frameDeltaTime()
+			eachFrameUpdate = func dt {
+
 				smoothDown      .process(self.isDown() ? 1 : 0, 0.05 * sm, dt)
 				smoothDown2     .process(self.isDown() ? 1 : 0, 0.25 * sm, dt)
 				smoothPaneHidden.process(paneHidden    ? 1 : 0, 0.55 * sm, dt)
@@ -7042,7 +7064,12 @@ api draggableDividerAndBackground = func options {
 				}
 
 				sm = 1
-			})
+			}
+
+//			options.createAnimationCallback( func dt {
+			onInterval(0, func { eachFrameUpdate(frameDeltaTime()) })
+
+			eachFrameUpdate(0) // initial update
 
 			return {
 				onMoved            = func { bg.needDraw() }

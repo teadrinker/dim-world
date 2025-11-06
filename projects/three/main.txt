@@ -34,14 +34,14 @@
 api createWrappedThreeObj = func obj, threeTypeName, threeObj, returnVal {
 	obj = obj or createComposite()
 
-	obj.add(nil, 'threeObj')	
+	obj.free('threeObj')	
 	trace(THREEjs, '(re)create threeObj '..threeTypeName..(returnVal and ' with returnVal' or ''))
-	obj.add({
+	obj.set('threeObj', {
 		remove = func {
 			if threeObj.parent { threeObj.parent.remove(threeObj) }
 			if threeObj.dispose { threeObj.dispose() }
 		}
-	}, 'threeObj')	
+	})	
 
 	if returnVal {
 		set(returnVal, {___class = 'three' + threeTypeName, threeObj = threeObj })
@@ -195,7 +195,7 @@ api spineComp_Mesh = func block, args, returnVal {
 			} else {
 				trace(THREEjs, 'Mesh: did not create')
 				trace(THREEjs,  '\n  '..toStr(values.geometry,30)..'\n  '..toStr(values.material,30))
-				obj.add(nil, 'threeObj')
+				obj.free('threeObj')
 				if obj.__debug_REMOVECALLEDCOMPLETE {
 					print('Mesh:unexpected callback to deleted object '..key)
 					return

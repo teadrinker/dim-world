@@ -1,5 +1,26 @@
 
 
+// spine global
+
+api spineFrameEvent = createCallbackList()
+api spineScheduler = createScheduler()
+
+spineFrame = createFrameState(spineScheduler, spineFrameEvent)
+
+api spineDelay = spineScheduler.delay
+api spineOnInterval = spineScheduler.onInterval
+api spineSetFixedFps = spineFrame.setFixedFps
+api spineDeltaTime = spineFrame.deltaTime
+api spineTime = spineFrame.time
+
+api spineSoftWrites = nil
+
+api spineAdvanceOneFrame = func time {
+	spineFrame.advanceFrame(time)
+	flushLater()
+	spineSoftWrites.update()
+}
+
 #####
 
 	api instantiateRec = nil   // the one who calls instantiateRec is responsible for calling remove on the returning structure
@@ -8,7 +29,11 @@
 	isReady = func x { x != nil and x.___class != "notReady" }   // isSimple
 //	isReady = func x { x != uninitialized }
 
+	api errorResult = func message { print(message) ; return { rv = create(uninitialized), remove = func { } } }
+	api errorOperator = func message { func ns, aCodeTree, bCodeTree, ec { errorResult(message) } }
+
 	// api spineValToBool = func x { not (x == uninitialized or x == nil) } // old behaviour, 1 for true, nil for false
+
 	api spineValToBool = func x { 
 		assert(type(x), '!=', 'bool') // we have not yet introduced a bool type...
 		return x == uninitialized or x == nil or x == 0 ? false : true 
@@ -603,65 +628,21 @@ functorOperator = func ns, aCodeTree, bCodeTree, ec {
 					instance = mainFunctorUpdate(aObj, bObj)
 
 				} else if va.___class == 'reactiveArray' { // index array
-					indexedUpdate(va)
 
-					/*
-					if bObj == nil { bObj = instantiateRec(ns, bCodeTree, ec) }
-					rvIndex = create()
-					assert(bObj.rv, '!=', nil)
-					args = get(bObj.rv)
-					assert(args, '!=', nil)
-					if args == uninitialized {
-						set(out, uninitialized)				
-					}
-					else {
-						assert(args.___class, '==', 'reactiveArray')
-						if bCodeTree.leftBracket != '[' {
-							print("WARNING! Deprecated, access should be done using []")
-							print("this still works but might not later...")
-						}
-						if aCodeTree.ws2 != nil {
-							print("WARNING! access using [] should not have whitespace in front of [")
-						}
-						argsHandle = spine_raKeyConnect(ctx, rvIndex, args, 0)
-						resHandle = nil
-						indexHookHandle = hook(ctx, rvIndex, func {
-							remove(resHandle)
-							indexVal = get(rvIndex)
-							trace(spine, 'indexHookHandle indexVal = '..toStr(indexVal))
-							resHandle = spine_raKeyConnect(ctx, out, va, indexVal)
-						}, true)
-						instance = {
-							remove = func {
-								remove(resHandle)
-								unhook(indexHookHandle)
-								remove(argsHandle)
-								set(out, uninitialized)
-							}
-						}						
-					}
-					*/
+					indexedUpdate(va)
 
 				} else if va.___functorLowLevel {  
 
 					instance = va.___functorLowLevel(ns, bCodeTree, out, ec)
 
-//				} else if va.___iteration   						// iteration for left can be implemented as functor?
-
 				} else {
-					throw('functorOperator used with non functor (table): '..toStr(va))
+					return errorResult('functorOperator used with non functor (table): '..toStr(va))
 				}
 			} else if tva == 'string' { // slice strings?
 
 				indexedUpdate(va, true)
-//				print('slice / [] : strings not yet!')
-//				if stringHook == nil {
-//					if bObj == nil { bObj = instantiateRec(ns, bCodeTree, ec) }
-//					stringHook = hook(ctx, aObj.rv, functorLeftUpdate, true)
-//				}
-//				set(out, substring(obj, index, index + 1)
 
-//			} else if tva == 'array'  { ...                    // support dscript arrays?
+//			} else if tva == 'array'  { ...                    // support js/dscript arrays?
 
 //			} else if tva == 'number' { bit(obj + 0.5, index)  // accessing the bits of a number using [] is prob more confusion than feature
 
@@ -678,7 +659,6 @@ functorOperator = func ns, aCodeTree, bCodeTree, ec {
 				{
 					print('functorOperator used with non functor: '..serialize(va)..' a:'..toStr(aCodeTree)..' b:'..toStr(bCodeTree))
 				}
-				// throw('functorOperator used with non functor: '..serialize(va))
 			}
 
 		} 
@@ -841,7 +821,7 @@ assignmentOperator = func ns, aCodeTree, bCodeTree, ec {
 	out = create(uninitialized) // assignment don't return anything, for now
 	token = aCodeTree.tokenAsData or aCodeTree.token
 	if token == nil {
-		throw('assignmentOperator() expected single namespace token '..toStr(aCodeTree))
+		return errorResult('assignmentOperator() expected single namespace token '..toStr(aCodeTree))
 	}
 	bObj = instantiateRec(ns, bCodeTree, ec)
 	nsObj = spineBlock_nameSpaceWriteObj(ns, token, bObj.rv)
@@ -885,6 +865,7 @@ writeOperatorPlain = func ns, aCodeTree, bCodeTree, ec {
 //       (iteration support handles the structure, which assumes returning a new array)
 //       also mutate the structure of a?
 
+/*
 writeOperator = func ns, out, a, b {
 
 	ctx = createHookContext()
@@ -902,6 +883,17 @@ writeOperator = func ns, out, a, b {
 		remove = removeWriteOperator
 	}
 }
+*/
+
+writeOperator = func ns, out, a, b {
+
+	set(out, uninitialized)
+
+	return spineSoftWrites.create(ns, b, a)
+
+}
+
+
 
 // spread / range operator 
 
@@ -1018,8 +1010,11 @@ dotOperator = func ns, aCodeTree, bCodeTree, ec {
 	if token == nil {
 		token = bCodeTree.number  // support syntax "myArray.0"
 		if token == nil {
-			throw('dotOperator() expected single namespace token '..toStr(bCodeTree))
+			return errorResult('dotOperator() expected single namespace token '..toStr(bCodeTree))
 		} else {
+			if token != clamp(floor(token), 0, 9) {
+				return errorResult('dotOperator() . with number only allowed for 0 to 9 (use [] instead)\n    higher numbers are reserved for potential swizzling support\n   '..toStr(bCodeTree))			
+			}
 			token = toString(token)
 		}
 	}
@@ -1456,13 +1451,6 @@ ternaryOperator = func ns, aCodeTree, bCodeTree, ec {
 }
 
 
-errorOp = func errorMessage {
-	func ns, aCodeTree, bCodeTree, ec {
-		print(errorMessage)
-		return { rv = create(uninitialized), remove = func { } }
-	}
-}
-
 
 T = true
 _ = false
@@ -1495,7 +1483,7 @@ binaryOps = {
 	'>>'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '>>', opTypeSupport(func a, b { a >> b })) }) }
 	'<<'     = { callback = createExecOperator(T, _, {}, func ns, out, a, b { hookOperator(ns, out, a, b, '<<', opTypeSupport(func a, b { a << b })) }) }
 	'?'      = { callback = ternaryOperator }	 
-	':'      = { callback = errorOp("ERROR! (:) Only expected as part of ternary (a ? b : c)") }	 
+	':'      = { callback = errorOperator("ERROR! (:) Only expected as part of ternary (a ? b : c)") }	// use for range/iterator?   what about madtealab ee/ei/ie/ii  or  numpy.linspace endPoint
 	'='      = { callback = assignmentOperator }	 
 	'.'      = { callback = dotOperator }	
 	'...'    = { callback = createExecOperator(T, _, {}, createRangeOpCreator()) }	
@@ -1504,8 +1492,8 @@ binaryOps = {
 	'>>>'    = { callback = debugOperator }
 
 //	'<-'     = { callback = writeOperatorPlain }
-	'<-'     = { callback = createExecOperator(T, T, {        }, writeOperator) }
 // 	'->'     = { callback = createExecOperator(T, T, {+swapOps}, writeOperator) } // write operator to the right
+	'<-'     = { callback = createExecOperator(T, T, {        }, writeOperator) }
  	'->'     = { callback = mapOperator } 
  	'|>'     = { callback = pipeOperator } 
  	'=>'     = { callback = inlineDefOperator } 
@@ -1518,6 +1506,62 @@ unaryOps = {
 	'/'      = { callback = unaryOperator('u/' , func x { 1/x }, func x { 1/x }) }	
 	'not'    = { callback = unaryOperator('not', func x { not spineValToBool(x) ? 1 : 0 }, func x { not spineValToBool(x) ? 1 : 0 }) }	
 }
+
+
+
+
+
+
+SoftWriteManager = class {
+	frame = 0
+	current = nil		
+	activeList = llCreate('prev', 'next')		
+	// inactiveList = llCreate('prev', 'next')		
+
+	expose create = func ns, rvSrc, rvDst {
+		obj = {}
+		ctx = createHookContext()
+		llInsert(activeList, obj, 'prev', 'next')
+		obj.rvSrc = rvSrc
+		obj.rvDst = rvDst
+		updateSoftWrite = func dstUpdated {
+			if dstUpdated {
+				if rvDst.lastWriter != obj {
+					obj.dstChange = true
+				}
+			} else {
+				obj.srcChange = true
+			}
+		}
+		hook(ctx, rvDst, func { updateSoftWrite(true) })
+		hook(ctx, rvSrc, updateSoftWrite)
+		obj.remove = func { llUnlink(obj, 'prev', 'next') }
+		return obj
+	}
+
+	expose update = func {
+
+		llForEach(activeList, func item {
+			current = item
+			item.srcChange = false
+			item.dstChange = false
+			val = get(item.rvSrc)
+			set(item.rvDst, val, item)
+			flushLater()
+			if item.dstChange {
+				print('softwrite reversed '..val..' -> '..get(item.rvDst))
+			}
+
+		},'prev','next')
+
+		current = nil		
+	}	
+}
+
+
+api spineSoftWrites = new SoftWriteManager()
+
+
 
 
 tree = createTreeApi()
@@ -1535,115 +1579,6 @@ block_getNameSpaceLink = func B, token {
 }
 
 
-/*
-
-api createTreeApi = class tPrev, tNext, subnodes {
-	tPrev  = tPrev or 'tPrev'
-	tNext  = tNext or 'tNext'
-	subnodes = subnodes  or 'tSubnodes'
-	
-	forEach = llForEach
-	reqSubnodeList = func o { if not o[subnodes] { o[subnodes] = llCreate(tPrev, tNext) } }
-
-	tRec   = nil; tRec   = func o, f      { r = f(o) ; if r == 'break' { return r } ; if r != 'skipSubnodes' and forEach(o[subnodes], func x { tRec  (x, f) }  ,tPrev,tNext) { return 'break' }                                         }
-	tRecR  = nil; tRecR  = func o, f      { r = f(o) ; if r == 'break' { return r } ; if r != 'skipSubnodes' and forEach(o[subnodes], func x { tRecR (x, f) }  ,tNext,tPrev) { return 'break' }                                         }
-	tRecP  = nil; tRecP  = func o, f      {                                           if                         forEach(o[subnodes], func x { tRecP (x, f) }  ,tPrev,tNext) { return 'break' } ; if f(o) == 'break' { return 'break' } }
-	tRecPR = nil; tRecPR = func o, f      {                                           if                         forEach(o[subnodes], func x { tRecPR(x, f) }  ,tNext,tPrev) { return 'break' } ; if f(o) == 'break' { return 'break' } }
-
-	tRec2  = nil; tRec2  = func o, f1, f2 { r = f1(o); if r == 'break' { return r } ; if r != 'skipSubnodes' and forEach(o[subnodes], func x { tRec2(x,f1,f2)} ,tPrev,tNext) { return 'break' } ; if f2(o)== 'break' { return 'break' } }
-	tRec2R = nil; tRec2R = func o, f1, f2 { r = f1(o); if r == 'break' { return r } ; if r != 'skipSubnodes' and forEach(o[subnodes], func x { tRec2R(x,f1,f2)},tPrev,tNext) { return 'break' } ; if f2(o)== 'break' { return 'break' } }
-
-	nextNode = func o { if o.parent == nil { return nil } ; llGet(o.parent[subnodes], o, tNext) }
-	prevNode = func o { if o.parent == nil { return nil } ; llGet(o.parent[subnodes], o, tPrev) }
-
-	expose unlink            = func o    { assert(o) ; assert(o[tPrev]) assert(o.parent) ; llUnlink(o, tPrev, tNext) ; o.parent = nil }
-
-	expose traverseSubnodes  = func o, f { return forEach(o[subnodes], f, tPrev, tNext) }
-	expose traverseSubnodesR = func o, f { return forEach(o[subnodes], f, tNext, tPrev) }
-
-	expose traverse          = tRec     // call ->  recurse forwards           (pre order)
-	expose traverseR         = tRecR    // call ->  recurse backwards          (pre order, reverse)
-	expose traverseP         = tRecP    //          recurse forwards  -> call  (post order)
-	expose traversePR        = tRecPR   //          recurse backwards -> call  (post order, reverse)
-	expose traverse2         = tRec2    // call1 -> recurse forwards  -> call2 (2 functions)
-	expose traverse2R        = tRec2R   // call1 -> recurse backwards -> call2 (2 functions, reverse)
-
-	expose hasSubnodes       = func o { sn = o[subnodes]; return sn and llGet(sn, sn, tNext) != nil and true or false }
-
-	expose parent            = func n { n.parent }
-	expose first             = func o { sn = o[subnodes]; return sn and llGet(sn, sn, tNext) }
-	expose last              = func o { sn = o[subnodes]; return sn and llGet(sn, sn, tPrev) }
-	expose next              = nextNode
-	expose prev              = prevNode
-
-	expose insertFirst       = func parent, ins { reqSubnodeList(parent); llInsert( parent[subnodes], ins, tPrev, tNext) ; ins.parent = parent }
-	expose insertLast        = func parent, ins { reqSubnodeList(parent); llInsert( parent[subnodes], ins, tNext, tPrev) ; ins.parent = parent }
-	expose insertBefore      = func rel, ins    {                         llInsert( rel,              ins, tNext, tPrev) ; ins.parent = rel.parent }
-	expose insertAfter       = func rel, ins    {                         llInsert( rel,              ins, tPrev, tNext) ; ins.parent = rel.parent }
-
-	expose depth             = func it {
-		cnt = 0
-		while it {
-			it = it.parent
-			cnt = cnt + 1
-		}
-		cnt
-	}
-
-	expose deepestLast       = func it {
-		prevIt = nil
-		while it {
-			prevIt = it
-			it = last(it)
-		}
-		prevIt
-	}
-
-	expose forward           = func it, stopAt, skipSubnodes {
-		if not skipSubnodes {
-			tmp = first(it) ; if tmp { return tmp }
-		}
-		tmp = next(it)  ; if tmp { return tmp }
-		if it == stopAt { return }
-		while true {
-			it = it.parent;
-			if it == stopAt { return }
-			if it == nil { return }
-			if it.parent == nil { return } // reached end
-			tmp = next(it) ; if tmp { return tmp }
-		}
-		return nil
-	}
-
-	expose backward        = func it, stopAt {
-		if it.parent == nil { return } // reached the start of the tree
-		it2 = prev(it)
-		if it2 == nil {
-			it2 = it.parent
-			return it2 != stopAt ? it2 : nil
-		}
-		while true {
-			tmpLast = last(it2)
-			if tmpLast == nil {
-				if it2 == stopAt { return }
-				return it2
-			}
-			it2 = tmpLast
-		}		
-	}	
-
-	expose nextOrForward = func it, stopAt {  // old name: nextOrAfterNext
-
-		// same as forward w skipSubnodes = 1?
-		forward(it, stopAt, true)
-
-		// tmp = nextNode(it)
-		// if tmp { return tmp }
-		// return forward(deepestLast(it), stopAt)
-	}
-}
-
-*/
 
 if false {
 
@@ -2020,7 +1955,7 @@ instantiateItems = func ns, t, items, ec {
 //					if item.left.isSymbol {
 				key = item.left.tokenAsData or item.left.token
 //					} else {
-//						throw('todo non symbol '..toStr(item))
+//						return errorResult('todo non symbol '..toStr(item))
 //						//key = instantiateRec(newNs, item.left, ec)
 //					}
 			rObj = instantiateRec(newNs, item.right, ec)
@@ -2055,12 +1990,12 @@ api instantiateRec = func ns, t, ec {
 			ret = instantiateItems(ns, t, items, ec)
 		} else if t.left {                              // binary op
 			opcode = binaryOps[t.token]
-			if not opcode { throw('no such opcode '..t.token..' '..serialize(t))}
+			if not opcode { return errorResult('no such opcode '..t.token..' '..serialize(t))}
 			ret = opcode.callback(ns, t.left, t.right, ec)
 		} else if t.right {
 			if t.token {                                // unary op
 				opcode = unaryOps[t.token]
-				if not opcode { throw('no such opcode '..t.token..' '..serialize(t))}
+				if not opcode { return errorResult('no such opcode '..t.token..' '..serialize(t))}
 				ret = opcode.callback(ns, t.right, ec)
 			} else {
 				                                    	// redundant bracket
@@ -2220,7 +2155,7 @@ api spineBlock_createReactiveExpression = func ns, codeTree, ec {
 	expose createBlocksFromCodeTreeArray = func id, codeTreeArray, parentExpr, tmpPrevExpr {
 		__debugLastText = parentExpr.__debugLastText
 		consts = sharedConstantsPerLine[id]
-		if consts == nil { throw('no consts for '..id) }
+		if consts == nil { return errorResult('no consts for '..id) }
 
 		arrayExpr = []
 	    cleanArrayExpr = func {
@@ -3640,7 +3575,7 @@ api spineComp_delay = func ns, args, returnVal {
 	intervalHandle = nil
 	delayTime = uninitialized
 	customTime = uninitialized
-	getCustomTime = func { customTime == uninitialized ? frameTime() : customTime }
+	getCustomTime = func { customTime == uninitialized ? spineTime() : customTime }
 	inp = nil
 
 	delaycomp_everyframe = func {
@@ -3668,7 +3603,7 @@ api spineComp_delay = func ns, args, returnVal {
 				}
 			}
 		}
-		if intervalHandle == nil { intervalHandle = onInterval(0, delaycomp_everyframe)	}
+		if intervalHandle == nil { intervalHandle = spineOnInterval(0, delaycomp_everyframe)	}
 	}
 
 	onAnyChange = func id, item, onlyValueChange  {
@@ -3681,7 +3616,7 @@ api spineComp_delay = func ns, args, returnVal {
 			// print('pusssh')
 			item.rec.pushSampleAtCurrentTime(val)
 		}
-		if intervalHandle == nil { intervalHandle = onInterval(0, delaycomp_everyframe)	}
+		if intervalHandle == nil { intervalHandle = spineOnInterval(0, delaycomp_everyframe)	}
 	}	
 
 	inp = spine_createRecursiveValueConnection(args, 0, {def = uninitialized}, returnVal, onAnyChange)
@@ -3703,7 +3638,7 @@ api spineComp_delay_singlenumber = func ns, args, returnVal {
 	delayTime = uninitialized
 	customTime = uninitialized
 
-	rec = timeSeriesRecorder(func { customTime == uninitialized ? frameTime() : customTime }, 10)
+	rec = timeSeriesRecorder(func { customTime == uninitialized ? spineTime() : customTime }, 10)
 	sampler = rec.createSampler()
 
 	delaycomp_everyframe = func {
@@ -3723,7 +3658,7 @@ api spineComp_delay_singlenumber = func ns, args, returnVal {
 		// else if which == 2 {} //  don't need to do anything for customTime since it's polled
 
 		if intervalHandle == nil {
-			intervalHandle = onInterval(0, delaycomp_everyframe)				
+			intervalHandle = spineOnInterval(0, delaycomp_everyframe)				
 		}
 	}
 
@@ -3775,7 +3710,7 @@ api spineComp_createAnimationGenerator = func innerFunc {
 		v = spine_createValueConnection(args, 0, {def = 1}, func v { 
 			hz = v.get()
 		})	
-		intervalHandle = onInterval(0, func deltaTime {
+		intervalHandle = spineOnInterval(0, func deltaTime {
 			pos = pos + deltaTime * hz
 			pos = pos - floor(pos)
 			set(returnVal, innerFunc(pos) )
@@ -3810,12 +3745,12 @@ api spineComp_createSmooth = func reverseAlt {
 
 	inp = spine_createRecursiveValueConnection(args, 0, {def = 'no argument'}, returnVal, itemCallback)
 
-	intervalHandle = onInterval(0, func {
+	intervalHandle = spineOnInterval(0, func {
 		
 
 		if inp == nil { return }
 		amtVal = amt.get()
-		frameT = frameDeltaTime()
+		frameT = spineDeltaTime()
 		for id, item in inp.currentItems {
 			cur = curVals[id]
 			if item.val == 'no argument' {
@@ -3865,12 +3800,12 @@ api spineComp_createSmooth = func reverseAlt {
 		}
 	})	
 
-	intervalHandle = onInterval(0, func {
+	intervalHandle = spineOnInterval(0, func {
 		amtVal = amt.get()
 		if cur == nil or amtVal == 0 {
 			cur = dst
 		} else {
-			cur = cur + (1-exp(-pi*2*frameDeltaTime()/amtVal)) * (dst - cur) 
+			cur = cur + (1-exp(-pi*2*spineDeltaTime()/amtVal)) * (dst - cur) 
 		}
 		set(returnVal, cur)		
 	})
@@ -3989,11 +3924,11 @@ api spine_vec2_vec2_wrap = func inner_forward, inner_backward {
 api spineComp_deltaTime = func ns, args, returnVal {
 
 	intervalHandle = newFrameEvent.register(func {
-		set(returnVal, frameDeltaTime())
+		set(returnVal, spineDeltaTime())
 	})	
 
-	// intervalHandle = onInterval(0, func {
-	// 	set(returnVal, frameDeltaTime())
+	// intervalHandle = spineOnInterval(0, func {
+	// 	set(returnVal, spineDeltaTime())
 	// })
 
 	return {
@@ -4008,15 +3943,15 @@ first_time = nil
 api spineComp_time = func ns, args, returnVal {
 
 	if first_time == nil {
-		first_time = frameTime()
+		first_time = spineTime()
 	}
 
 	intervalHandle = newFrameEvent.register(func {
-		set(returnVal, frameTime() - first_time)
+		set(returnVal, spineTime() - first_time)
 	})
 
-	// intervalHandle = onInterval(0, func {
-	// 	set(returnVal, frameTime() - first_time)
+	// intervalHandle = spineOnInterval(0, func {
+	// 	set(returnVal, spineTime() - first_time)
 	// })
 
 	return {
@@ -4028,7 +3963,7 @@ api spineComp_time = func ns, args, returnVal {
 
 // legacy / remove
 api spineComp_getTime = func ns, args, returnVal {
-	intervalHandle = onInterval(0, func {
+	intervalHandle = spineOnInterval(0, func {
 		set(returnVal, getTime() )
 	})
 	return {
@@ -4088,19 +4023,19 @@ api spineComp_state = func ns, args, returnVal {
 api spineComp_delta = func ns, args, returnVal {
 
 	v0 = spine_createRecursiveValueConnection(args, 0, {def = 'no argument'}, returnVal)
-	prevFrameDeltaTime = 1/60
-	intervalHandle = onInterval(0, func {
+	prevspineDeltaTime = 1/60
+	intervalHandle = spineOnInterval(0, func {
 		if v0 == nil { return }
 		for item in v0.currentItems {
 			if item.val == 'no argument' {
 				item.prevVal = nil
 			} else {
 				if item.prevVal == nil { item.prevVal = item.val }
-				set(item.rvDst, (item.val - item.prevVal)/prevFrameDeltaTime)
+				set(item.rvDst, (item.val - item.prevVal)/prevspineDeltaTime)
 				item.prevVal = item.val			
 			}
 		}
-		prevFrameDeltaTime = frameDeltaTime()		
+		prevspineDeltaTime = spineDeltaTime()		
 	})
 	return {
 		remove = func { remove(intervalHandle) ; remove(v0) ; v0 = nil }
@@ -4110,12 +4045,12 @@ api spineComp_delta = func ns, args, returnVal {
 /*
 	v0 = spine_createValueConnection(args, 0, {def = 0})
 	prevVal = v0.get()
-	prevFrameDeltaTime = 1/60
-	intervalHandle = onInterval(0, func {
+	prevspineDeltaTime = 1/60
+	intervalHandle = spineOnInterval(0, func {
 		curVal = v0.get()
-		set(returnVal,(curVal-prevVal)/prevFrameDeltaTime)
+		set(returnVal,(curVal-prevVal)/prevspineDeltaTime)
 		prevVal = curVal
-		prevFrameDeltaTime = frameDeltaTime()
+		prevspineDeltaTime = spineDeltaTime()
 	})
 	return {
 		remove = func { remove(intervalHandle) ; remove(v0) }
@@ -4128,8 +4063,8 @@ api spineComp_delta = func ns, args, returnVal {
 api spineComp_integrate = func ns, args, returnVal {
 	v1 = spine_createValueConnection(args, 1, {def = 0})	    
 	v0 = spine_createValueConnection(args, 0, {def = 0})
-	intervalHandle = onInterval(0, func {
-		v1.set(v1.get() + v0.get()*frameDeltaTime())
+	intervalHandle = spineOnInterval(0, func {
+		v1.set(v1.get() + v0.get()*spineDeltaTime())
 	})
 	return {
 		remove = func { remove(intervalHandle) ; remove(v0) ; remove(v1) }
@@ -4305,7 +4240,7 @@ api spineComp_onAnim = func ns, args, returnVal {
 
 	v0 = spine_createRecursiveValueConnection(args, 0, {def = 'no argument'}, returnVal)
 
-	intervalHandle = onInterval(0, func {
+	intervalHandle = spineOnInterval(0, func {
 		if v0 == nil { return }
 		later(func {
 		later(func {
@@ -4452,7 +4387,7 @@ api createSpineApp = func options {
 	
 	options = options or {}
 	
-	setFixedFps(options.fixedFps)
+	spineSetFixedFps(options.fixedFps)
 
 	initGlobalTimers()
 
@@ -4636,7 +4571,7 @@ api createSpineApp = func options {
 
 	updateCode = func delayTime {
 		remove(lastDelay)
-		lastDelay = delay(delayTime == nil ? 0.4 : delayTime, func {
+		lastDelay = spineDelay(delayTime == nil ? 0.4 : delayTime, func {
 			lastDelay = nil
 			syncInstance.syncNow()
 			if codeDbListen.hasChanged() {
@@ -4647,7 +4582,7 @@ api createSpineApp = func options {
 
 			if textDebug and runRoot {
 				remove(lastFeedbackDelay)
-				lastFeedbackDelay = delay(0.2, func {
+				lastFeedbackDelay = spineDelay(0.2, func {
 					lastFeedbackDelay = nil
 					str = 'run'
 					it = runRoot
@@ -4686,6 +4621,8 @@ api createSpineApp = func options {
 	}
 
 	hook(gHookContext, codeInput.text, updateCode, options.skipInitialSync == nil ? true : options.skipInitialSync)
+
+	idleEvent.register(func { spineAdvanceOneFrame(getTime()) })	
 
 	return app
 }

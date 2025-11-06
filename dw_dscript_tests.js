@@ -1,8 +1,16 @@
+
+
 (function() {
 'use strict';
 
+	var testExceptions = true
+	var browserDebugToolsIsOpen =  window.outerHeight - window.innerHeight > 200 || window.outerWidth - window.innerWidth > 200
+	if(browserDebugToolsIsOpen) {
+		self.console.log("browser debug tools is open, skipping tests with exceptions")
+		testExceptions = false
+	}
+
 	function createDSTester(options) {
-		var testExceptions = true
 		var successfullCount = 0
 		var failedCount = 0		
 		var outputOnFail = true
@@ -71,8 +79,10 @@
 	var test = createDSTester()
 	var nil = undefined
 
-	test.run('TestBrace',     '}',   'PARSE_FAIL')
-	test.run('TestAccess',    'undefined_access',   'PARSE_FAIL')
+	if(testExceptions) {
+		test.run('TestBrace',     '}',   'PARSE_FAIL')
+		test.run('TestAccess',    'undefined_access',   'PARSE_FAIL')
+	}
 	test.run('Test00',        'a = 1+2*3 == 30 + 10; a', false)
 	test.run('Test0',         '1-2*2', -3)
 	test.run('Test1',         '1 -2*(2+ 1*3) * 23 +2 -3*3', -236)
@@ -92,8 +102,10 @@
 	test.run('Test8',         'yyy = func x,y,z { return x * y + z - 1 }; yyy(2,3,4)', 9)
 	test.run('Test9',         'while not 4{ xx = 3}', nil)
 	test.run('TestIf1',       'if -2 { bb=2;aa=23+2*3 } else if bb == 4 { bb=33} else { bb = 3 }',  nil)
-	test.run('TestIf2',       'if -2 { bb=2;aa=23+2*3 } else if bb == 4 { bb=33} else { bb = 3 } else {}',  'PARSE_FAIL')
-	test.run('TestIf3',       'if -2 { bb=2;aa=23+2*3 } elseif bb == 4 { }',  'PARSE_FAIL')
+	if(testExceptions) {
+		test.run('TestIf2',       'if -2 { bb=2;aa=23+2*3 } else if bb == 4 { bb=33} else { bb = 3 } else {}',  'PARSE_FAIL')
+		test.run('TestIf3',       'if -2 { bb=2;aa=23+2*3 } elseif bb == 4 { }',  'PARSE_FAIL')
+	}
 	test.run('TestIf4',       'a = 1 ; foo(a+2*10) if false or false ; a',  1)
 	test.run('TestIf5',       'a = 1   ; a    = 4 if true ; a   ',  4)
 	test.run('TestIf6',       'a = [1] ; a[0] = 4 if true ; a[0]',  4)
@@ -169,7 +181,9 @@
 	test.run('classnew', "c = class { expose hello = func { 'world' } ; } ; instance = new c(); instance.hello()", 'world')
 	test.run('classnew', "c = class { expose hello = func { 'world' } ; } ; instance = new c(2); instance.hello()", 'world')
 
-	test.run('DoubleQuote', "xxx = 'hej''san'; 4", 'PARSE_FAIL') 							// this should not pass through the parserContext.parse() without error!!!
+	if(testExceptions) {
+		test.run('DoubleQuote', "xxx = 'hej''san'; 4", 'PARSE_FAIL') 							// this should not pass through the parserContext.parse() without error!!!
+	}
 
 			//test.run('reach', 'if (true) { reach=1 } ; reach', 'PARSE_FAIL')	// this should give parsing error,  all scopes need nameSpaceBlockBegin/End for Lua compatibility
 	test.report()

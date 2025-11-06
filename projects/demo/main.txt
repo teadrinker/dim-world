@@ -395,7 +395,7 @@ guiContext.onResize(func {
 
 urlConfig = uriToTable(getURLQueryString())
 
-createSpineApp({
+app = createSpineApp({
 
 	debug           = urlConfig.debug == '1'
 	incremental     = urlConfig.incremental == nil ? true : urlConfig.incremental == '1'
@@ -429,3 +429,4 @@ createSpineApp({
 		guiComponents.add(spineBlock_nameSpaceWriteObj(block, 'currentUiContext', create(spineComp_createUiContext())))
 	}
 })
+
