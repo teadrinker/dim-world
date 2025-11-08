@@ -889,7 +889,7 @@ writeOperator = func ns, out, a, b {
 
 	set(out, uninitialized)
 
-	return spineSoftWrites.create(ns, b, a)
+	return spineSoftWrites.create(ns, {wo : [b, a]})
 
 }
 
@@ -1518,42 +1518,93 @@ SoftWriteManager = class {
 	activeList = llCreate('prev', 'next')		
 	// inactiveList = llCreate('prev', 'next')		
 
-	expose create = func ns, rvSrc, rvDst {
-		obj = {}
+	expose create = func ns, spec {
+		items = { }
+		obj = { items = items } 
 		ctx = createHookContext()
 		llInsert(activeList, obj, 'prev', 'next')
-		obj.rvSrc = rvSrc
-		obj.rvDst = rvDst
-		updateSoftWrite = func dstUpdated {
-			if dstUpdated {
-				if rvDst.lastWriter != obj {
-					obj.dstChange = true
+
+		obj.set = func key, rvSrc, rvDst {
+			item = items[key]
+			if item == nil { item = {} ; items[key] = item }
+			if item.rvSrc == rvSrc and item.rvDst == rvDst { return } // not needed?
+			if item.handleDst { unhook(item.handleDst) }
+			if item.handleSrc { unhook(item.handleSrc) }
+			item.rvSrc = rvSrc
+			item.rvDst = rvDst
+			updateSoftWrite = func dstUpdated {
+				if dstUpdated {
+					if rvDst.lastWriter != item {
+						item.dstChange = true
+					}
+				} else {
+					item.srcChange = true
 				}
-			} else {
-				obj.srcChange = true
+				// if current { // collect info about dependency chain?
+				//   
+				// }
+			}
+			item.handleDst = hook(ctx, rvDst, func { updateSoftWrite(true) })
+			item.handleSrc = hook(ctx, rvSrc, updateSoftWrite)
+		}
+		obj.free = func key {
+			item = items[key] ; if item != nil { items[key] = nil ; if item.handleDst { unhook(item.handleDst) } ; if item.handleSrc { unhook(item.handleSrc) } }
+		}
+
+		if spec != nil {
+			for k,v in spec {
+				obj.set(k, v[0], v[1])
 			}
 		}
-		hook(ctx, rvDst, func { updateSoftWrite(true) })
-		hook(ctx, rvSrc, updateSoftWrite)
-		obj.remove = func { llUnlink(obj, 'prev', 'next') }
+
+		obj.remove = func { llUnlink(obj, 'prev', 'next') ; remove(ctx) }
 		return obj
 	}
 
 	expose update = func {
+//		tPrev = frame & 1 ? 'prev' : 'next'  // alternate order (good for visual debug, to see order-dependent write chain diff)
+//		tNext = frame & 1 ? 'next' : 'prev'
+		tPrev = 'prev'
+		tNext = 'next'
 
-		llForEach(activeList, func item {
-			current = item
-			item.srcChange = false
-			item.dstChange = false
-			val = get(item.rvSrc)
-			set(item.rvDst, val, item)
-			flushLater()
-			if item.dstChange {
-				print('softwrite reversed '..val..' -> '..get(item.rvDst))
+		llForEach(activeList, func obj {
+			current = obj
+			anyChange = false
+
+			for k, item in obj.items {
+				dstVal = get(item.rvDst)
+				val = get(item.rvSrc)
+				item.srcChange = false
+				item.dstChange = false
+				if dstVal != val {
+					// print('softwrite update '..k)
+					anyChange = true
+					set(item.rvDst, val, item)							
+				}
 			}
 
-		},'prev','next')
+			if anyChange {
+				flushLater()
 
+				for k, item in obj.items {
+					// if get(item.rvSrc) != get(item.rvDst) // add check?
+					if item.srcChange {
+						print('softwrite self-feedback: key='..k..', '..get(item.rvSrc)..' -> '..get(item.rvDst))
+						item.srcChange = false
+					}					
+					if item.dstChange {
+						trace(spine, 'softwrite reversed: key='..k..', '..get(item.rvSrc)..' -> '..get(item.rvDst))
+						item.dstChange = false
+					}
+				}				
+			} else {
+				// todo put into inactive list ? maybe inactivate if unchanging for 2 frames?
+			}
+
+
+		}, tPrev, tNext)
+
+		frame = frame + 1
 		current = nil		
 	}	
 }
@@ -1734,11 +1785,13 @@ nameSpaceFind = func ns, token {
     trace(spine, '   not found')
 }
 
-hookNameSpaceItem = func item, sourceRv {
+hookNameSpaceItem = func item, sourceRv, debug {
 	if item.handle  { unhook(item.handle ) }
 	if item.handle2 { unhook(item.handle2) }
 
 	if sourceRv {
+		trace(spine, 'hookNameSpaceItem '..debug..' dst:'..toStr(get(item.dest),40)..' src:'..toStr(get(sourceRv),40))
+		sourceRv.lastWriter = nil // need interface for this?
 		item.handle = hook(item.hookCtx, sourceRv, func {	
 			if sourceRv.lastWriter != item {
 				trace(spine, 'nameSpaceListener     '..toStr(get(item.dest),40)..' -> '..toStr(get(sourceRv),40))
@@ -1757,6 +1810,7 @@ hookNameSpaceItem = func item, sourceRv {
 			}
 		})						
 	} else {
+		trace(spine, 'hookNameSpaceItem '..debug..' nil source')
 		set(item.dest, uninitialized)	
 		item.handle = nil
 		item.handle2 = nil
@@ -1767,7 +1821,7 @@ rehookReadTokenBinding = func ns, token, sourceRv {
 	trace(spine, "rehookReadTokenBinding "..token)
 	ns.nameSpaceRead[token].source = sourceRv
 	llForEach(ns.nameSpaceRead[token].destinations, func item {
-		hookNameSpaceItem(item, sourceRv)
+		hookNameSpaceItem(item, sourceRv, token)
 	},'prev','next')
 }
 
@@ -1796,7 +1850,7 @@ api spineBlock_hookToNameSpace = func hookCtx, ns, token, rv {
 		}
 	}
 	llInsert(ns.nameSpaceRead[token].destinations, item, 'prev', 'next')
-	hookNameSpaceItem(item, sourceRv)	
+	hookNameSpaceItem(item, sourceRv, token)	
 	item
 }
 
@@ -2515,7 +2569,7 @@ nil
  //                               pos            0,1  
 
 
-api spine_createVec2ConnObj = func token_or_rv, options, changedCallback {
+api spine_createVec2ConnObj = func token_or_rv, options, changedCallback, rvCallback {
 	token = type(token_or_rv) == 'string' ? token_or_rv : nil
 	x = nil
 	y = nil
@@ -2571,6 +2625,7 @@ api spine_createVec2ConnObj = func token_or_rv, options, changedCallback {
 		hRvX = spine_rvToRaProperty(ctx, newRv, 0, {def = options.def == nil ? 0 : options.def[0]}, func newRvX {
 			// print("spine_createVec2Conn x "..token..' '..newRv) // debug spine_createVec2Conn issue
 			rvX = newRvX
+			if rvCallback { rvCallback(rvX, rvY) }
 			if changedCallback {
 				if xHook { unhook(xHook) }
 				xHook = hook(ctx, rvX, func {
@@ -2586,6 +2641,7 @@ api spine_createVec2ConnObj = func token_or_rv, options, changedCallback {
 		remove(hRvY) ; hRvY = nil
 		hRvY = spine_rvToRaProperty(ctx, newRv, 1, {def = options.def == nil ? 0 : options.def[1]}, func newRvY {
 			rvY = newRvY
+			if rvCallback { rvCallback(rvX, rvY) }
 			if changedCallback {
 				if yHook { unhook(yHook) }
 				yHook = hook(ctx, rvY, func {
@@ -2610,8 +2666,8 @@ api spine_createVec2ConnObj = func token_or_rv, options, changedCallback {
 	item
 }
 
-api spine_createVec2Conn = func rvToRa, token, options, changedCallback {
-	item = spine_createVec2ConnObj(token, options, changedCallback)
+api spine_createVec2Conn = func rvToRa, token, options, changedCallback, rvCallback {
+	item = spine_createVec2ConnObj(token, options, changedCallback, rvCallback)
 	item.hRa = spine_rvToRaProperty(item.ctx, rvToRa, token, options, item.relinkReactiveValue)
 	changedCallback(item)
 	return item
@@ -3923,7 +3979,7 @@ api spine_vec2_vec2_wrap = func inner_forward, inner_backward {
 
 api spineComp_deltaTime = func ns, args, returnVal {
 
-	intervalHandle = newFrameEvent.register(func {
+	intervalHandle = spineFrameEvent.register(func {
 		set(returnVal, spineDeltaTime())
 	})	
 
@@ -3946,7 +4002,7 @@ api spineComp_time = func ns, args, returnVal {
 		first_time = spineTime()
 	}
 
-	intervalHandle = newFrameEvent.register(func {
+	intervalHandle = spineFrameEvent.register(func {
 		set(returnVal, spineTime() - first_time)
 	})
 

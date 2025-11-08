@@ -77,11 +77,22 @@ func ns, args, returnVal {
 		}
 	}
 
-	drag = create(false) // out
-
 	drwPoint = coordCtx.createDrawable()
 	drwLine = nil
 	drwLine = coordCtx.createDrawable()
+
+	dragX = create(uninitialized)
+	dragY = create(uninitialized)
+	softWrite = nil
+	posRvX = nil
+	posRvY = nil
+	updateRvs = func rvX, rvY {
+		posRvX = rvX ; posRvY = rvY
+		if softWrite {
+			softWrite.set('x', dragX, posRvX)
+			softWrite.set('y', dragY, posRvY)
+		}
+	}
 
 	mCol = spine_createValueConnection(args, 'color', {def = '#FFF'}, func mCol {
 		drwPoint.needDraw()
@@ -95,30 +106,12 @@ func ns, args, returnVal {
 		drwLine.needDraw()
 	})
 
-	prevFrame = -1
 	mPos = spine_createVec2Conn(args, 'pos', {def = [400,400]}, func mPos { 
-
 		ppos = mPos.get()
 		posInputValid = false
-		// print(" " ..ppos[0].." "..ppos[1])
-		if dragging {
-			drwLine.needDraw()
-			ppos = coordCtx.fromInput(lastDragMyPosIS)
-
-			// if position was changed while we are dragging/holding
-			// reset the position to match mouse/touch position
-			// but only do this once per frame (as a new position might be pushed back again)
-			//
-			// fragile impl, can break depending on callback timing (x vs y), we need some kind of queue priority
-			// globally : do somthing like: flush events -> mPos.set(ppos) (+ similar ui stuff, on separate queue?) ->  flush events
-			//
-			if prevFrame != frameCount() { 
-				mPos.set(ppos) 
-			}
-		}
+		if dragging { drwLine.needDraw() }
 		drwPoint.needDraw()
-		prevFrame = frameCount()
-	})	
+	}, updateRvs)	
 
 	drawBindings = nil
 	if drwPoint {
@@ -127,7 +120,7 @@ func ns, args, returnVal {
 			rad = mRadius.get()
 			drwPoint.update('circle', {x = dataPos[0], y = dataPos[1], radius = rad + (dragging ? min(4, 2 * rad) : 0), color = valueToColor(mCol.get()) })
 			drwLine.update('line', dragging ?
-				{x1 = ppos[0], y1 = ppos[1], x2=dataPos[0] , y2 = dataPos[1], color = valueToColor(mCol.get()), opacity = 0.5, width = rad } : nil)
+				{x1 = get(dragX), y1 = get(dragY), x2=dataPos[0] , y2 = dataPos[1], color = valueToColor(mCol.get()), opacity = 0.5, width = rad } : nil)
 		})	
 		drwPoint.needDraw()
 	}
@@ -135,9 +128,16 @@ func ns, args, returnVal {
 	inputDrag = func id, event, pos {
 
 		if not posInputValid { validateISCoord() }
-		if      event == 'start' { ppos = mPos.get() ; posInputValid = false; dragging = true  ; set(drag, true)  ; drwLine.needDraw() }
-		else if event == 'stop'  { ppos = mPos.get() ; posInputValid = false; dragging = false ; set(drag, false) ; drwLine.needDraw() }
-		else {
+		if        event == 'start' { ppos = mPos.get() ; posInputValid = false ; dragging = true  ; drwLine.needDraw()
+			set(dragX, ppos[0])
+			set(dragY, ppos[1])
+			softWrite = spineSoftWrites.create()
+			softWrite.set('x', dragX, posRvX)
+			softWrite.set('y', dragY, posRvY)
+		} else if event == 'stop'  { ppos = mPos.get() ; posInputValid = false ; dragging = false ; drwLine.needDraw()
+			remove(softWrite)
+			softWrite = nil
+		} else {
 			// print("drag " .. frameCount())
 
 			diffDragIS = v2sub(pos, lastDragInputIS)
@@ -146,8 +146,8 @@ func ns, args, returnVal {
 			validateISCoord()
 			if drwPoint { drwPoint.needDraw() }
 			if dragging and drwLine { drwLine.needDraw() }
-//			set(rvPos, ppos)
-			mPos.set(ppos)
+			set(dragX, ppos[0])
+			set(dragY, ppos[1])
 		}
 		lastDragMyPosIS = posIS
 		lastDragInputIS = pos
@@ -191,9 +191,18 @@ func ns, args, returnVal {
 	lastDragInputIS = nil
 	dragging = false
 
-	drag = create(false) // out
-	prevFrame = -1
-
+	dragX = create(uninitialized)
+	dragY = create(uninitialized)
+	softWrite = nil
+	posRvX = nil
+	posRvY = nil
+	updateRvs = func rvX, rvY {
+		posRvX = rvX ; posRvY = rvY
+		if softWrite {
+			softWrite.set('x', dragX, posRvX)
+			softWrite.set('y', dragY, posRvY)
+		}
+	}
 
 	mCol = spine_createValueConnection(args, 'color', {def = '#FFF'}, func mCol {
 		drwRect.needDraw()
@@ -202,17 +211,8 @@ func ns, args, returnVal {
 	mPos = spine_createVec2Conn(args, 'pos', {def = [400,400]}, func mPos { 
 		ppos = mPos.get()
 		posInputValid = false
-		if dragging {
-			ppos = coordCtx.fromInput(lastDragMyPosIS)	
-			if prevFrame != frameCount() {					
-				mPos.set(ppos)
-			}
-			drwRect.needDraw()
-			posInputValid = false
-		}
 		drwRect.needDraw()
-		prevFrame = frameCount()
-	})	
+	}, updateRvs)	
 
 	mSize = spine_createVec2Conn(args, 'size', {def = [100,100]}, func mSize { 
 		drwRect.needDraw()
@@ -277,7 +277,7 @@ func ns, args, returnVal {
 			if dist != nil {
 				// reduce priority of large rects (good for touch input vs small items)
 				// definition of small is hardoded: 30 units
-				dist = dist + 0.5 * margin * (1 - min(1, 30 / max(size[0], size[1])))
+				dist = dist + 0.5 * margin * (1 - min(1, 30 / max(abs(size[0]), abs(size[1]))))
 			}
 			return dist
 		}
@@ -285,19 +285,25 @@ func ns, args, returnVal {
 
 	inputDrag = func id, event, pos {
 		if not posInputValid { validateISCoord() }
-		if      event == 'start' { ppos = mPos.get() ; posInputValid = false; dragging = true  ; set(drag, true) }
-		else if event == 'stop'  { ppos = mPos.get() ; posInputValid = false; dragging = false ; set(drag, false)}
-		else {
-
+		if        event == 'start' { ppos = mPos.get() ; posInputValid = false ; dragging = true
+			set(dragX, ppos[0])
+			set(dragY, ppos[1])
+			softWrite = spineSoftWrites.create()
+			softWrite.set('x', dragX, posRvX)
+			softWrite.set('y', dragY, posRvY)
+		} else if event == 'stop'  { ppos = mPos.get() ; posInputValid = false ; dragging = false
+			remove(softWrite)
+			softWrite = nil
+		} else {
+			// print("drag " .. frameCount())
 
 			diffDragIS = v2sub(pos, lastDragInputIS)
 			diffMyIS = v2sub(posIS, lastDragMyPosIS)
 			ppos = v2add(ppos, coordCtx.fromInputScaleOnly(v2sub(diffDragIS, diffMyIS)))
 			validateISCoord()
 			if drwRect { drwRect.needDraw() }
-
-//			set(rvPos, ppos)
-			mPos.set(ppos)
+			set(dragX, ppos[0])
+			set(dragY, ppos[1])
 		}
 		lastDragMyPosIS = posIS
 		lastDragInputIS = pos
@@ -336,8 +342,8 @@ api spineComp_line = func ns, args, returnVal {
 		draggable = true
 		onInit = func self, ctx {
 			line = ctx.createDrawable()
-			mFrom = spine_createVec2Conn       (args, 'from' , {def = [370,370] }, func { if line { line.needDraw() } })
-			mTo   = spine_createVec2Conn       (args, 'to'   , {def = [430,430] }, func { if line { line.needDraw() } })
+			mFrom = spine_createVec2Conn       (args, 0 , {def = [370,370] }, func { if line { line.needDraw() } })
+			mTo   = spine_createVec2Conn       (args, 1 , {def = [430,430] }, func { if line { line.needDraw() } })
 			mCol  = spine_createValueConnection(args, 'color', {def = '#FFF'  }, func { if line { line.needDraw() } })
 			mWidth= spine_createValueConnection(args, 'width', {def = 1         }, func { if line { line.needDraw() } })
 			self.bindDrawables([line], func {

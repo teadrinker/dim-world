@@ -2361,7 +2361,7 @@ api createScheduler = func {
 #####
 
 
-api createFrameState = func scheduler, newFrameEvent {
+api createFrameState = func scheduler, frameEvent {
 	lastDiff = 1/10000
 	prevTime = 0
 	fixedFps = nil
@@ -2383,7 +2383,7 @@ api createFrameState = func scheduler, newFrameEvent {
 
 		lastDiff = diff
 		prevTime = t
-		newFrameEvent.sendCallbacks() 
+		frameEvent.sendCallbacks() 
 		assert(diff, '>=', 0)
 		if diff > 0 {
 			scheduler.flush(diff)
@@ -2832,7 +2832,7 @@ entire = structure + all items
 		if endBracket[t] { throw('end bracket not expected:'..t..'') } 
 		e = {}
 		
-		injectBracket = isFunctorArg and t != '(' and t != '['
+		injectBracket = isFunctorArg and (it.rawPeek(-1) == ' ' or t != '(' and t != '[')
 		if not injectBracket {
 			ws = it.proceed(true) ; if ws != '' { e.ws1 = ws }
 		}
@@ -2933,9 +2933,9 @@ entire = structure + all items
 			if not injectBracket { it.proceed() }
 			una = parseContext.unaryOperators[t]
 
-			if una.prec > prec { // this check is not needed for C style syntax (for purist math -2^2 should be -4 but note that this still fails for constants when precedence is lower, as minus is parsed as a part of the number if there is no whitespace between)
+			if una.prec > prec { // this check is not needed for C style syntax (for purist math -2^2 should be -4, note that this still fails for constants when precedence is set lower, as minus is parsed as a part of the number if there is no whitespace between)
 				e.token = t
-				e.right = parseExpressionR(it, una.prec, parseContext)
+				e.right = parseExpressionR(it, una.prec, parseContext, false, injectBracket)
 	//			e.data = una.callback(e.right.data)
 			}
 
@@ -2959,7 +2959,20 @@ entire = structure + all items
 			} 
 			
 			op2 = parseContext.binaryOperators[t]
-			if op2 { 
+
+			// guess if unary or binary based on whitespace, this behaviour
+			// is pretty weird, however it still seems to be the best option...
+			// (coffeescript does something similar)
+
+			//  a-b   ->  a - b   guessUnary = false 
+			//  a- b  ->  a - b   guessUnary = false 
+			//  a - b ->  a - b   guessUnary = false 
+			//  a -b  ->  a(-b)   guessUnary = true 
+			
+			guessUnary = op2 and parseContext.unaryOperators[t] and it.rawPeek(-1) == ' ' and it.rawPeek(1) != ' '
+
+			if op2 and not guessUnary { 
+
 				if op2.prec > prec or op2.isRightAssoc and op2.prec == prec {
 					nextPrec = op2.prec - (not op2.isRightAssoc and op2.prec == prec ? 1 : 0)
 					it.proceed()
@@ -2972,7 +2985,7 @@ entire = structure + all items
 				} else {
 					break
 				}
-			} else if parseContext.unaryPostOperators and parseContext.unaryPostOperators[t] and prec < parseContext.unaryPostOperators[t].prec {
+//			} else if parseContext.unaryPostOperators and parseContext.unaryPostOperators[t] and prec < parseContext.unaryPostOperators[t].prec {
 
 			} else if prec < parseContext.binaryOperators[''].prec { // case for functor operator
 				e = {
