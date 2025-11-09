@@ -1191,10 +1191,12 @@ pushLaterEachChange = false
 
 
 _unhook = func h            {
-                              llUnlink(h, 'prev', 'next')
-                              llUnlink(h, 'ctxPrev', 'ctxNext')
-                              h.laterHandle = nil
-                              h.callFunc = nil
+							  if h.callFunc { // when unhook happens per item, we need to make sure we don't try to unhook again when context is removed
+								llUnlink(h, 'prev', 'next')
+								llUnlink(h, 'ctxPrev', 'ctxNext')
+								h.laterHandle = nil
+								h.callFunc = nil								
+							  }
                             }
 _unhookAll = func _hooks       { llForEach(_hooks, _unhook, 'ctxPrev', 'ctxNext') }
 

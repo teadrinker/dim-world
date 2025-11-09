@@ -4011,7 +4011,7 @@ api spineComp_time = func ns, args, returnVal {
 	}
 
 	intervalHandle = spineFrameEvent.register(func {
-		set(returnVal, floor(spineTime() - first_time))
+		set(returnVal, spineTime() - first_time)
 	})
 
 	// intervalHandle = spineOnInterval(0, func {
