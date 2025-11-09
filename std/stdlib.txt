@@ -213,6 +213,8 @@ api mapKV = func f, o {
 
 #####
 
+// haskell style reduce, I think placing the array/object as first arg rather than last would be more readable
+
 api fold = func f, initial, o {
 	firstIt = {}
 	val = initial == nil ? firstIt : initial
@@ -951,6 +953,25 @@ api llForEachFast = func ll, f, prevToken, nextToken {
 
 #####
 
+api llCount = func ll, nextToken {
+	if ll == nil { return 0 }
+	assert(nextToken, '!=', nil)
+	i = nil
+	i = ll[nextToken]
+	count = 0
+	while i != ll {
+		if i == nil { throw('llForEachFast() FATAL ERROR, chain broken while iterating') }
+		if not i.__linkIsIterator {
+			count = count + 1
+		}
+		i = i[nextToken]
+	}
+	return count
+}
+
+
+#####
+
 
 
 api createTreeApi = class tPrev, tNext, subnodes {
@@ -1175,9 +1196,9 @@ _unhook = func h            {
                               h.laterHandle = nil
                               h.callFunc = nil
                             }
-_unhookAll = func ctx       { llForEach(ctx._hooks, _unhook, 'ctxPrev', 'ctxNext') }
+_unhookAll = func _hooks       { llForEach(_hooks, _unhook, 'ctxPrev', 'ctxNext') }
 
-api unhook = func h      { if h._hooks { _unhookAll(h) } else { _unhook(h) } }
+api unhook = func h      { if h._hooks { _unhookAll(h._hooks) ; print("does this ever happen 2?") } else { _unhook(h) } }
 api hook = func ctx, mv, f, exe { 
 							  assert(mv)
                               h = { };
@@ -1191,7 +1212,7 @@ api hook = func ctx, mv, f, exe {
                               if not mv.listeners { mv.listeners = llCreate('prev','next') } 
                               llInsert(mv.listeners, h,'next', 'prev') 
                               llInsert(ctx._hooks, h,'ctxNext', 'ctxPrev')
-                              if exe { if exe == true { f() } else { print("does this ever happen?") ; exe(f) } }
+                              if exe { if exe == true { f() } else { print("does this ever happen 3?") ; exe(f) } }
 							  h.remove = func { print('todo, time to remove unhook() from api?') }
                               h
 		                       }

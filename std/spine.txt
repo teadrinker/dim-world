@@ -394,8 +394,10 @@ api spineAdvanceOneFrame = func time {
 
     }
 
+	debugCounter = 10
 	hookOperator = func ns, out, a, b, debugToken, opFunc, opInvA, opInvB, flipOperands {
 		ctx = createHookContext()
+		debugCounter = debugCounter + 1
 		updateOperator = nil
 		updateOperator = func {
 			va = get(a)
@@ -406,7 +408,7 @@ api spineAdvanceOneFrame = func time {
 					print('updateOperator value check: '..toStr(va)..' '..(debugToken or '?')..' '..toStr(vb) )
 				} else {
 					v = opFunc(va, vb)
-					// print('updateOperator '..toStr(va)..' '..(debugToken or '?')..' '..toStr(vb)..' = '..toStr(v) )
+					trace(hookop, 'updateOperator '..debugCounter..' '..toStr(va)..' '..(debugToken or '?')..' '..toStr(vb)..' = '..toStr(v) )
 					set(out, v, ctx)
 				}
 			}
@@ -414,8 +416,8 @@ api spineAdvanceOneFrame = func time {
 				set(out, uninitialized, ctx)
 			}
 		}
-		hook(ctx, a, updateOperator)
-		hook(ctx, b, updateOperator, true)
+		hook(ctx, a, func { if a.lastWriter != ctx { updateOperator() } })
+		hook(ctx, b, func { if b.lastWriter != ctx { updateOperator() } }, true)
 
 		if opInvB { assert(opInvA)
 			invAorBSelection = not a.readOnly and a or not b.readonly and b
@@ -440,8 +442,8 @@ api spineAdvanceOneFrame = func time {
 					//	} else if isFiniteNumber(v) and checkInverseTolerance(get(invAorBSelection), v) { // this can sometimes stop infinite cascades?
 						} else if isFiniteNumber(v) {
 
-							// print('inverse op ' .. get(invAorBSelection) ..' -> ' .. v .. '   forward '.. get(a) .. ' ' .. get(b) .. ' ' .. opFunc(get(a),get(b)) )
-							set(invAorBSelection, v)
+							trace(hookop, 'inverse op ' .. debugCounter .. ' ' .. get(invAorBSelection) ..' -> ' .. v .. '   forward '.. get(a) .. ' ' .. get(b) .. ' ' .. opFunc(get(a),get(b)) )
+							set(invAorBSelection, v, ctx)
 
 						} else {
 							
@@ -454,11 +456,9 @@ api spineAdvanceOneFrame = func time {
 				hook(ctx, out, updateInvOperator)
 			}
 		}
-
-		{
-			rv = out
-			remove = func { remove(ctx)  }
-		}
+		handle = { rv = out }
+		handle.remove = func { remove(ctx) }
+		return handle
 	}
 	
 
@@ -482,7 +482,7 @@ api spineAdvanceOneFrame = func time {
 
 
 
-	opTypeSupport = func simpleOp {     // just make sure we only run simpleOp for strings / numbers (maybe add more type support later, Float32Array etc)
+	opTypeSupport_ = func simpleOp {     // just make sure we only run simpleOp for strings / numbers (maybe add more type support later, Float32Array etc)
 		wrapped = nil
 		wrapped = func a, b{
 //			print('wrapped '..toStr(a)..' '..toStr(b))
@@ -511,6 +511,8 @@ api spineAdvanceOneFrame = func time {
 		}
 		wrapped
 	}
+
+	opTypeSupport = func x { x }  // no longer needed? remove?
 
 	opAdd     = opTypeSupport(func a, b { a + b })
 	opSub     = opTypeSupport(func a, b { a - b })
@@ -1561,13 +1563,16 @@ SoftWriteManager = class {
 		return obj
 	}
 
+	prevCount = nil
 	expose update = func {
 //		tPrev = frame & 1 ? 'prev' : 'next'  // alternate order (good for visual debug, to see order-dependent write chain diff)
 //		tNext = frame & 1 ? 'next' : 'prev'
 		tPrev = 'prev'
 		tNext = 'next'
+		count = 0
 
 		llForEach(activeList, func obj {
+			count = count + 1
 			current = obj
 			anyChange = false
 
@@ -1604,6 +1609,10 @@ SoftWriteManager = class {
 
 		}, tPrev, tNext)
 
+		if prevCount != count {
+			prevCount = count
+			trace(softwrite, 'soft write count: '..count)
+		}
 		frame = frame + 1
 		current = nil		
 	}	
@@ -1791,7 +1800,7 @@ hookNameSpaceItem = func item, sourceRv, debug {
 
 	if sourceRv {
 		trace(spine, 'hookNameSpaceItem '..debug..' dst:'..toStr(get(item.dest),40)..' src:'..toStr(get(sourceRv),40))
-		sourceRv.lastWriter = nil // need interface for this?
+		if sourceRv.lastWriter == item { sourceRv.lastWriter = nil } // need interface for this?
 		item.handle = hook(item.hookCtx, sourceRv, func {	
 			if sourceRv.lastWriter != item {
 				trace(spine, 'nameSpaceListener     '..toStr(get(item.dest),40)..' -> '..toStr(get(sourceRv),40))
@@ -2066,8 +2075,7 @@ api instantiateRec = func ns, t, ec {
 
 			} else if(t.token != nil) {                 // symbol
 				ret = createComposite()
-				hookCtx = createHookContext()
-				ret.add(hookCtx)
+				hookCtx = ret.add(createHookContext())
 				if ec == nil {
 					#{ js debugger #}
 				}
@@ -4003,7 +4011,7 @@ api spineComp_time = func ns, args, returnVal {
 	}
 
 	intervalHandle = spineFrameEvent.register(func {
-		set(returnVal, spineTime() - first_time)
+		set(returnVal, floor(spineTime() - first_time))
 	})
 
 	// intervalHandle = spineOnInterval(0, func {
@@ -4652,7 +4660,7 @@ api createSpineApp = func options {
 						str = str .. (it.reactiveHandle and it.reactiveHandle.rv != nil and get(it.reactiveHandle.rv) != uninitialized ? '    == ' .. toStr(get(it.reactiveHandle.rv), 25) : '')
 						str = str .. (it.hideFromNameSpace ? ' HIDE' : '     ')
 						
-						if it.nameSpaceRead  { str = str .. '   Read:' .. fold(func cur, v, k { cur..' '..k..':'..(v.source ? v.source.id : 'nil') }, '', it.nameSpaceRead ) }
+						if it.nameSpaceRead  { str = str .. '   Read:' .. fold(func cur, v, k { cur..' '..k..':'..(v.source ? v.source.id + '_' + llCount(v.destinations, 'prev', 'next') : 'nil') }, '', it.nameSpaceRead ) }
 						//if it.nameSpaceWrite { str = str .. '   Write:' .. fold(func cur, v, k { cur..' '..k}, '', it.nameSpaceWrite) }
 						if it.nameSpaceWrite { str = str .. '   Write:' .. fold(func cur, v, k { cur..' '..k..':'..v.id..'='..toStr(get(v),4) }, '', it.nameSpaceWrite) }
 						it = tree.forward(it)
