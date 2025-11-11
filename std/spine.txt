@@ -184,7 +184,7 @@ api spineAdvanceOneFrame = func time {
 
 		return {
 			rv = out
-			remove = func { remove(ctx) ; remove(curObj) }
+			remove = func { remove(curObj) ; remove(ctx) }
 		}
 	}
 
@@ -210,7 +210,7 @@ api spineAdvanceOneFrame = func time {
 
 		return {
 			rv = out
-			remove = func { remove(ctx) ; remove(curObj) }
+			remove = func { remove(curObj) ; remove(ctx) }
 		}
 	}
 
@@ -272,16 +272,20 @@ api spineAdvanceOneFrame = func time {
 	}
 
 	api connectWithFallback = func ctx, rvIn, rvFallback, returnVal {
+		deleted = false
 		handle = nil
 		handle2 = nil
 		primaryCheck = nil
 		usingFallback = false
 		needFeedBackF = func v { v == uninitialized or v == nil }
-		updateConnectWithFallback = func {
-			remove(handle)
-			handle = nil
+		connectWithFallbackCleanup = func {
+			remove(handle) ; handle = nil
 			if handle2 { unhook(handle2) ; handle2 = nil }
-			
+		}
+		updateConnectWithFallback = func {
+			if deleted { return }
+			connectWithFallbackCleanup()
+
 			usingFallback = rvIn == nil or needFeedBackF(get(rvIn))
 			if usingFallback {
 				if rvFallback != nil { handle = connect(ctx, rvFallback, returnVal, "connectWithFallback A") }
@@ -306,9 +310,9 @@ api spineAdvanceOneFrame = func time {
 		updateConnectWithFallback()
 
 		return {
-			updatePrimary  = func rv { rvIn       = rv; updateConnectWithFallback() }
-			updateFallback = func rv { rvFallback = rv; updateConnectWithFallback() }
-			remove = func { remove(handle) ; if handle2 { unhook(handle2) ; handle2 = nil } }
+			updatePrimary  = func rv { connectWithFallbackCleanup() ; rvIn       = rv; updateConnectWithFallback() }
+			updateFallback = func rv { connectWithFallbackCleanup() ; rvFallback = rv; updateConnectWithFallback() }
+			remove = func { deleted = true ; connectWithFallbackCleanup() }
 		}
 	}
 
@@ -482,7 +486,7 @@ api spineAdvanceOneFrame = func time {
 
 
 
-	opTypeSupport_ = func simpleOp {     // just make sure we only run simpleOp for strings / numbers (maybe add more type support later, Float32Array etc)
+	opTypeSupport = func simpleOp {     // just make sure we only run simpleOp for strings / numbers (maybe add more type support later, Float32Array etc)
 		wrapped = nil
 		wrapped = func a, b{
 //			print('wrapped '..toStr(a)..' '..toStr(b))
@@ -512,7 +516,7 @@ api spineAdvanceOneFrame = func time {
 		wrapped
 	}
 
-	opTypeSupport = func x { x }  // no longer needed? remove?
+	opTypeSupport_ = func x { x }  // no longer needed? remove?
 
 	opAdd     = opTypeSupport(func a, b { a + b })
 	opSub     = opTypeSupport(func a, b { a - b })
@@ -670,7 +674,7 @@ functorOperator = func ns, aCodeTree, bCodeTree, ec {
 
 	{
 		rv = out
-		remove = func { remove(ctx) ; remove(aObj) ; remove(bObj) ; remove(instance) }
+		remove = func { remove(aObj) ; remove(bObj) ; remove(instance) ; remove(ctx) }
 	}
 }
 
@@ -788,20 +792,6 @@ api	spine_mapLL = func ns, codeTree, returnVal, ec {
 	if codeTree.items != nil and len(codeTree.items) == 2 and codeTree.items[0].token == '=' {
 				
 		return spine_mapInner(ns, codeTree.items[0].right, codeTree.items[1], codeTree.items[0].left.token, returnVal, ec)
-
-		/*
-		iterationKey = codeTree.items[0].left.token
-
-		input = instantiateRec(ns, codeTree.items[0].right, ec)
-		
-		handle = spine_rvToRa(nil, input.rv, func ra {
-			raMapObj(ra, returnVal, func key, rv {
-				newEc = immutableUpdate(ec, iterationKey, rv)
-				return instantiateRec(ns, codeTree.items[1], newEc)
-			})
-		})
-		return { remove = func { remove(handle) ; remove(input) }}
-		*/
 		
 	} else {
 		print('WARNING: map() ignored, expected 2 params:   map i = 0...10, i * i ')
@@ -856,7 +846,7 @@ writeOperatorPlain = func ns, aCodeTree, bCodeTree, ec {
 
 	return {
 		rv = out
-		remove = func { remove(ctx) ; remove(a) ; remove(b) }
+		remove = func { remove(a) ; remove(b) ; remove(ctx) }
 	}		
 }
 */
@@ -943,6 +933,7 @@ createRangeOpCreator = func isInclusive {
 				}
 				*/
 
+				
 				// re-use
 				newLen = len(newRange)
 				while raLen(raReturn) > newLen {
@@ -987,6 +978,7 @@ createRangeOpCreator = func isInclusive {
 					tmp()
 					i = i + 1
 				}
+
 			})
 		}
 
@@ -1249,9 +1241,14 @@ recValConnection = func ctx, outRv, rv, valueChangeCallback, parentId {
 						raInsert(outRvVal, key, outRvForKey)
 					}
 					newId = parentId .. '_@_' .. key
+					trace(recval, "create "..newId)
 					userObj = recValConnection(ctx, outRvForKey, rvVal, valueChangeCallback, newId)
 					return {
-						remove = func { if(userObj) { remove(userObj) } ; raRemove(outRvVal, key) }
+						remove = func {
+							trace(recval, "remove "..newId)
+							if(userObj) { remove(userObj) }
+							raRemove(outRvVal, key) 
+						}
 					}
 				})
 			}
@@ -1284,6 +1281,7 @@ api spine_createRecursiveValueConnection = func rvToRa, token, options, outRv, i
 					items[id].rvDst = rv			
 					items[id].rvSrc = rvSrc		
 				}
+				trace(recval, "valueChangeCallback "..id..' '..val)
 				if itemCallback != nil {
 					itemCallback(id, items[id], onlyValueChange)
 				}	
@@ -1295,9 +1293,10 @@ api spine_createRecursiveValueConnection = func rvToRa, token, options, outRv, i
 		}	
 	// }
 
-	ctx = obj.add(createHookContext())
+	ctx = obj.hookContext()
 	obj.add(spine_rvToRaProperty(ctx, rvToRa, token, options, func rv {
 
+		trace(recval, "root "..token)
 		obj.free('innerHandle')
 		items = {}
 		obj.currentItems = items
@@ -1312,7 +1311,7 @@ api spine_createRecursiveValueConnection = func rvToRa, token, options, outRv, i
 unaryOperator = func debug, forward, backward {
 	func ns, codeTree, ec {
 		obj = createComposite()
-		ctx = obj.add(createHookContext())
+		ctx = obj.hookContext()
 		handle = instantiateRec(ns, codeTree, ec)
 		items = {}
 		unaryCallback = func id, rvDst, val, rvSrc {
@@ -1336,7 +1335,7 @@ unaryOperator = func debug, forward, backward {
 
 debugOperator = func ns, aCodeTree, bCodeTree, ec {
 	obj = createComposite()
-	ctx = obj.add(createHookContext())
+	ctx = obj.hookContext()
 	handleA = obj.add(instantiateRec(ns, aCodeTree, ec))
 	handleB = obj.add(instantiateRec(ns, bCodeTree, ec))
 	returnVal = create(uninitialized)
@@ -1358,7 +1357,7 @@ inlineDefOperator = func ns, aCodeTree, bCodeTree, ec {
 	_returnVal = create( {
 		___functor = func ns_unused, args, returnVal {
 			obj = createComposite()
-			ctx = obj.add(createHookContext())
+			ctx = obj.hookContext()
 
 			// handle arguments
 
@@ -1416,7 +1415,7 @@ ternaryOperator = func ns, aCodeTree, bCodeTree, ec {
 		return { rv = create(uninitialized), remove = func { } }
 	}
 	obj = createComposite()
-	ctx = obj.add(createHookContext())
+	ctx = obj.hookContext()
 	handleA = obj.add(instantiateRec(ns, aCodeTree, ec))
 
 	// we could re-use the reactive expressions and not re-instantiate?
@@ -2075,7 +2074,7 @@ api instantiateRec = func ns, t, ec {
 
 			} else if(t.token != nil) {                 // symbol
 				ret = createComposite()
-				hookCtx = ret.add(createHookContext())
+				hookCtx = ret.hookContext()
 				if ec == nil {
 					#{ js debugger #}
 				}
@@ -2284,7 +2283,7 @@ api spineBlock_createReactiveExpression = func ns, codeTree, ec {
 					if sharedConstantsPerLine[id] != nil and sharedConstantsPerLine[id].ctx != nil {
 						remove(sharedConstantsPerLine[id].ctx)
 					}
-					sharedConstantsPerLine[id] = { _ctx = createHookContext(), rvConsts = {}, text = text } 
+					sharedConstantsPerLine[id] = { _ctx = createHookContext(), rvConsts = {}, text = text }  // _ctx need remove?
 					consts = sharedConstantsPerLine[id]
 					consts.codeTreeArray = res.codeTreeArray
 					for k, v in res.dataVals {
@@ -2437,7 +2436,7 @@ api spineBlock_createReactiveExpression = func ns, codeTree, ec {
 
 		expose pushCodeUpdate = func diff {
 			for id, v in diff {
-				trace(spine, 'pushCodeUpdate '..id..'\n    '..toStr(v))
+				trace(spine, 'pushCodeUpdate '..id)   // ..'\n    '..toStr(v))
 				codeLine = codeLines[id]
 				if codeLine == nil and type(v) == 'array' and len(v) != 0 {
 					v = getValueFromDiff(v)
@@ -2809,8 +2808,7 @@ api spine_createValueConnection = func rvToRa, token, options, changedCallback {
 api spine_createArrayConnection = func rvToRa, token, options, insertedCallback {
 
 	obj = createComposite()
-	ctx = createHookContext()
-	obj.add(ctx)
+	ctx = obj.hookContext()
 	obj.add(spine_rvToRaProperty(ctx, rvToRa, token, options, func rv {
 		hooks = {}
 		handles = {}
@@ -2855,13 +2853,11 @@ api createIdGenerator = func { i = 1 ; return func { i = i + 1 ; return i } }
 api spine_wrapRecursive = func spine_func {
 	return func ns, args, returnVal {
 
-		innerHandle = nil
-
 		wrapCallback = func id, item, onlyValueChange  {
 			// print('' .. (item.val == nil ? 'nil' : item.val) .. ' - ' .. (get(item.rvSrc) == nil ? 'nil' : get(item.rvSrc)) .. ' - ' .. (get(item.rvDst) == nil ? 'nil' : get(item.rvDst)) .. ' - ' .. onlyValueChange)			
 			if not onlyValueChange {
-				remove(innerHandle)
-				innerHandle = spine_func(ns, item.rvSrc, item.rvDst)
+				item.free('wrapRecursive')
+				item.set ('wrapRecursive', spine_func(ns, item.rvSrc, item.rvDst))
 			}			
 		}
 
@@ -2870,7 +2866,6 @@ api spine_wrapRecursive = func spine_func {
 		return {
 			remove = func {
 				remove(handle)
-				remove(innerHandle)
 			}
 		}
 	}
@@ -3087,7 +3082,7 @@ api spineComp_for = func ns, args, returnVal {
 	//	return { remove = func { print('for iterate delete key '..key) ; remove(iterHandle) } }
 	})
 
-	removeFor = func { remove(ctx) ; remove(argsHandle) }
+	removeFor = func { remove(argsHandle) ; remove(ctx) }
 
 	return { remove = removeFor }
 }
@@ -3203,9 +3198,11 @@ api createRoundOrFloor = func offset {
 			val = get(rvIn)
 			if isReady(val) {
 				lastVal = floor(val + offset)
+				trace(floor, 'set'..lastVal)
 				set(returnVal, lastVal)						
 			}
 			else  {
+				trace(floor, 'set uninitialized')
 				set(returnVal, uninitialized)						
 			}
 		}, true)	
@@ -3219,6 +3216,7 @@ api createRoundOrFloor = func offset {
 			if isReady(inval) and isReady(outVal) {
 				newValF = outVal + offset
 				newVal = floor(newValF)
+				trace(floor, 'REV '..get(returnVal)..' '..lastVal..' '..newVal)
 				// print('floor() out change '..get(returnVal)..' '..lastVal..' '..newVal)
 				if newVal != lastVal {
 					newInVal = inval + (newVal - lastVal) // add diff to inval
@@ -3576,7 +3574,7 @@ api spineComp_mix2 = func ns, args, returnVal {
 		return { remove = func { } } 
 	})
 
-	return { remove = func { remove(ctx) ; remove(argsHandle) } } 
+	return { remove = func { remove(argsHandle) ; remove(ctx) } } 
 }
 
 #####
@@ -4010,8 +4008,15 @@ api spineComp_time = func ns, args, returnVal {
 		first_time = spineTime()
 	}
 
+	v0 = spine_createValueConnection(args, 0, {def = 0})	    
+
 	intervalHandle = spineFrameEvent.register(func {
-		set(returnVal, spineTime() - first_time)
+		t = spineTime() - first_time
+		hz = v0.get()
+		if hz > 0 {
+			t = floor(t * hz) / hz
+		}
+		set(returnVal, t)
 	})
 
 	// intervalHandle = spineOnInterval(0, func {
@@ -4019,7 +4024,7 @@ api spineComp_time = func ns, args, returnVal {
 	// })
 
 	return {
-		remove = func { remove(intervalHandle) }
+		remove = func { remove(intervalHandle) ; remove(v0) }
 	}
 }
 
@@ -4156,7 +4161,7 @@ api spineComp_fallback = func ns, args, returnVal {
 	v0 = spine_rvToRaProperty(ctx, args, 0, nil, func rv { handle.updatePrimary (rv) })
 	v1 = spine_rvToRaProperty(ctx, args, 1, nil, func rv { handle.updateFallback(rv) })
 	return {
-		remove = func { remove(ctx) ; remove(handle) ; remove(v0); remove(v1) }
+		remove = func { remove(handle) ; remove(v0) ; remove(v1) ; remove(ctx) }
 	}
 }
 
@@ -4210,7 +4215,7 @@ api spineComp_fallback = func ns, args, returnVal {
 	v0 = spine_rvToRaProperty(ctx, args, 0, {def = uninitialized}, func rv { rvIn       = rv ; updateFallback() })
 	v1 = spine_rvToRaProperty(ctx, args, 1, {def = uninitialized}, func rv { rvFallback = rv ; updateFallback() })
 	return {
-		remove = func { remove(ctx) ; remove(handle) ; if handle2 { unhook(handle2) ; handle2 = nil } ; remove(v0); remove(v1) }
+		remove = func { remove(handle) ; if handle2 { unhook(handle2) ; handle2 = nil } ; remove(v0) ; remove(v1) ; remove(ctx) }
 	}
 }
 */

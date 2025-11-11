@@ -89,8 +89,8 @@ func ns, args, returnVal {
 	updateRvs = func rvX, rvY {
 		posRvX = rvX ; posRvY = rvY
 		if softWrite {
-			softWrite.set('x', dragX, posRvX)
-			softWrite.set('y', dragY, posRvY)
+			if dragX and posRvX { softWrite.set('x', dragX, posRvX) } else { softWrite.free('x') }
+			if dragY and posRvY { softWrite.set('y', dragY, posRvY) } else { softWrite.free('y') }
 		}
 	}
 
@@ -132,8 +132,8 @@ func ns, args, returnVal {
 			set(dragX, ppos[0])
 			set(dragY, ppos[1])
 			softWrite = spineSoftWrites.create()
-			softWrite.set('x', dragX, posRvX)
-			softWrite.set('y', dragY, posRvY)
+			if dragX and posRvX { softWrite.set('x', dragX, posRvX) } else { softWrite.free('x') }
+			if dragY and posRvY { softWrite.set('y', dragY, posRvY) } else { softWrite.free('y') }
 		} else if event == 'stop'  { ppos = mPos.get() ; posInputValid = false ; dragging = false ; drwLine.needDraw()
 			remove(softWrite)
 			softWrite = nil
@@ -199,8 +199,8 @@ func ns, args, returnVal {
 	updateRvs = func rvX, rvY {
 		posRvX = rvX ; posRvY = rvY
 		if softWrite {
-			softWrite.set('x', dragX, posRvX)
-			softWrite.set('y', dragY, posRvY)
+			if dragX and posRvX { softWrite.set('x', dragX, posRvX) } else { softWrite.free('x') }
+			if dragY and posRvY { softWrite.set('y', dragY, posRvY) } else { softWrite.free('y') }
 		}
 	}
 
@@ -289,8 +289,8 @@ func ns, args, returnVal {
 			set(dragX, ppos[0])
 			set(dragY, ppos[1])
 			softWrite = spineSoftWrites.create()
-			softWrite.set('x', dragX, posRvX)
-			softWrite.set('y', dragY, posRvY)
+			if dragX and posRvX { softWrite.set('x', dragX, posRvX) } else { softWrite.free('x') }
+			if dragY and posRvY { softWrite.set('y', dragY, posRvY) } else { softWrite.free('y') }
 		} else if event == 'stop'  { ppos = mPos.get() ; posInputValid = false ; dragging = false
 			remove(softWrite)
 			softWrite = nil

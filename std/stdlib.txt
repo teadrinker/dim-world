@@ -507,12 +507,16 @@ api remove = func h {
 
 #####
 
+api createHookContext = nil 
+
 api createComposite = func {
 	idcnt = -10000  //  auto-id range starts at -10001 and decreases
 	objs = {}
+	ctx = nil
 	return {
-		remove = func { for k, v in objs { remove(v) } ; objs = nil }
+		remove = func { for k, v in objs { remove(v) } ; remove(ctx) ; objs = nil }
 		free = func id { remove(objs[id]) ; objs[id] = nil }
+		hookContext = func { if ctx == nil { ctx = createHookContext() } return ctx }
 		set = func id, obj { 
 			if objs[id] != nil { print('composite : error, id already set '..id) } // we don't want to delete automatically here, this leads to bugs where things are old items are removed after new is created 
 			objs[id] = obj
@@ -1192,6 +1196,19 @@ pushLaterEachChange = false
 
 _unhook = func h            {
 							  if h.callFunc { // when unhook happens per item, we need to make sure we don't try to unhook again when context is removed
+
+								// prematurely send deferred events.
+								// This can mess up order of things
+								// but I think still the lesser evil than
+								//   (1) losing events
+								//   (2) allowing callbacks after deletion
+
+								if pushLaterEachChange {
+									if h.laterHandle { h.callFunc() }
+								} else {
+									if h.queued { h.callFunc() }
+								}							
+
 								llUnlink(h, 'prev', 'next')
 								llUnlink(h, 'ctxPrev', 'ctxNext')
 								h.laterHandle = nil
@@ -1200,7 +1217,15 @@ _unhook = func h            {
                             }
 _unhookAll = func _hooks       { llForEach(_hooks, _unhook, 'ctxPrev', 'ctxNext') }
 
-api unhook = func h      { if h._hooks { _unhookAll(h._hooks) ; print("does this ever happen 2?") } else { _unhook(h) } }
+api unhook = func h {
+	if h._hooks {
+		// remove!
+		print("does this ever happen 2?")
+		_unhookAll(h._hooks) 
+	} else {
+		_unhook(h)
+	}
+}
 api hook = func ctx, mv, f, exe { 
 							  assert(mv)
                               h = { };
@@ -1268,6 +1293,8 @@ api get = func mv
 	mv.v
 } 
 
+wrapCallback = func it { func { if it.callFunc { it.callFunc() } } } // this cannot be inlined in the while loop, as this fails to capture 'it'
+
 api set = func mv, v, writer  {
 
 //	print('set '..toStr(mv.v)..' -> '..toStr(v))
@@ -1286,14 +1313,18 @@ api set = func mv, v, writer  {
 			mv.v = v
 			mv.lastWriter = writer
 			it = listeners.next
-			while it != listeners {
+			while it != listeners { 
+				
+				// f = it.callFunc
+
+				f = wrapCallback(it) // this makes sure callbacks are not called after unhook
 
 				if pushLaterEachChange {
 					print('set '..prevV..' -> '..v)
-					it.laterHandle = later(it.callFunc, it.laterHandle)
+					it.laterHandle = later(f, it.laterHandle)
 				} else {
 					if not it.queued {
-						later(it.callFunc)
+						later(f)
 						it.queued = true
 					}					
 				}
@@ -3503,11 +3534,17 @@ nil
 		ra.a = nil
 	}
 
+	sendNotificationsNow = func v {
+		if v.events and len(v.events) > 0 {
+			v.f(v.events) ; v.events = [] ; v.onQueue = nil
+		} 
+	}
+
 	queueNotificationForListener = func v, event {
 		v.events.push(event)
 		if not v.onQueue {
 			v.onQueue = true
-			later(func { v.f(v.events) ; v.events = [] ; v.onQueue = nil })
+			later(func { sendNotificationsNow(v) })
 		}	
 	}
 
@@ -3572,8 +3609,10 @@ nil
 				for i * ln { queueNotificationForListener(item, ['removed', ln - 1 - i]) }
 //				for i = len(ra.a) - 1, 0 { queueNotificationForListener(item, ['removed', i]) }
 			}
+			sendNotificationsNow(item)
 			item.fullSyncOwner = nil
 		}
+
 		if item.prev != nil {
 			llUnlink(item, 'prev', 'next')
 		}
