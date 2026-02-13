@@ -7,7 +7,7 @@ The idea was to do as much as possible in client-side js, and
 then have a very thin php backend (~300 lines)
 
 The whole endeavor was centered around dscript, an experimental transpiler.
-The only project developed using this framework was [Spine](https://teadrinker.net/spine/) which was also abandoned.
+The only project developed using this framework was [Spine](https://teadrinker.net/spine/), a programming language focusing on direct manipulation and incremental computation (Spine source code also lives in this repo)
 
 You can run the dev environment here on github pages, and it will transcompile the source on the fly
 (but to actually build or develop, you need it locally obviously):  
