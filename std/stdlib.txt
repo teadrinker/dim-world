@@ -6832,7 +6832,7 @@ api createSimpleGuiSystem = func basicDraw {
 			llForEachFast(inputListeners, func item {
 				res = item.inputTest(id, apos)
 //				print('inputTest '..res)
-				if res and res < minDist {
+				if res != nil and res < minDist {
 					minItem = item
 					minDist = res
 				}

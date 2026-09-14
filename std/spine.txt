@@ -301,7 +301,7 @@ api spineAdvanceOneFrame = func time {
 				v = get(rvIn)
 				later(updateConnectWithFallback)
 			} else if not usingFallback and needFallback {
-				v = get(rvFallback)
+				if rvFallback != nil { v = get(rvFallback) } // no default: pass the missing value through
 				later(updateConnectWithFallback)
 			}
 			return v
@@ -429,7 +429,8 @@ api spineAdvanceOneFrame = func time {
 				invA    = out
 				invB    = invAorBSelection == b and a or b
 				invFunc = invAorBSelection == b and opInvB or opInvA
-				if flipOperands and invAorBSelection == b { tmp = invA ; invA = invB ; invB = invA }
+
+				if flipOperands and invAorBSelection == b { tmp = invA ; invA = invB ; invB = tmp }
 				updateInvOperator = func {
 					if out.lastWriter == ctx {
 						return
@@ -697,14 +698,16 @@ api spine_rvToRa = func ctx, rvToRa, callback, otherTypeCallback {
 //	}
 
 	raHookHandle = nil
-	curStateIsRa = nil 
+	curStateIsRa = nil
+	curRa = nil
 	rvHandle = hook(ctx, rvToRa, func {
 		ra = get(rvToRa)
 		isRa = (ra and ra.___class == 'reactiveArray') ? true : false
-		if isRa != curStateIsRa {
+		if isRa != curStateIsRa or (isRa and ra != curRa) {
 			remove(raHookHandle) ; raHookHandle = nil
 			curStateIsRa = isRa
-			if isRa {	
+			curRa = isRa ? ra : nil
+			if isRa {
 				raHookHandle = callback(ra)
 			} else if otherTypeCallback {
 				raHookHandle = otherTypeCallback(rvToRa)
@@ -717,8 +720,8 @@ api spine_rvToRa = func ctx, rvToRa, callback, otherTypeCallback {
 
 	removeHookArgs = func {
 		trace(spine, 'spine_rvToRa remove')
-		remove(raHookHandle)
 		if rvHandle { unhook(rvHandle) ; rvHandle = nil }
+		remove(raHookHandle) ; raHookHandle = nil
 		// if innerCtx { remove(innerCtx) ; innerCtx = nil }
 	}
 
@@ -1121,7 +1124,7 @@ api spine_rvToRaProperty = func ctx, rvToRa, token, options, changedCallback {
 	handle = spine_rvToRaPropertyObj(ctx, rvToRa, token, func rv {
 		curRv = rv
 		innerHook()
-		return { remove = func { curRv = nil ; innerHook } }
+		return { remove = func { curRv = nil ; innerHook() } }
 	})
 
 	remove_rvToRaProperty = func { remove(handle) }
@@ -1208,15 +1211,18 @@ recValConnection = func ctx, outRv, rv, valueChangeCallback, parentId {
 	
 	raHookHandle = nil
 	id = nil
+	conn = {} // identifies this leaf, a key can be re-registered by a new connection before the old one is removed
 
 	rvHandle = hook(ctx, rv, func {
 		v = get(rv)
 		vt = type(v)
 		if vt == 'number' or vt == 'string' or vt == 'nil' {	// isSimple
 
+			if raHookHandle { remove(raHookHandle) ; raHookHandle = nil } // no longer an array, drop its elements
+
 			if id == nil { id = parentId }
 
-			valueChangeCallback(id, outRv, v, rv)  // id, dstrv, srcval, srcrv
+			valueChangeCallback(id, outRv, v, rv, conn)  // id, dstrv, srcval, srcrv, owner
 
 		} else {
 
@@ -1225,7 +1231,9 @@ recValConnection = func ctx, outRv, rv, valueChangeCallback, parentId {
 				id = nil
 			}
 
-			if vt == 'table' and v.___class == 'reactiveArray' {	
+			if not (vt == 'table' and v.___class == 'reactiveArray') {
+				if raHookHandle { remove(raHookHandle) ; raHookHandle = nil } // not ready / not an array, drop its elements
+			} else {
 				remove(raHookHandle)
 
 				outRvVal = get(outRv)
@@ -1247,6 +1255,7 @@ recValConnection = func ctx, outRv, rv, valueChangeCallback, parentId {
 						remove = func {
 							trace(recval, "remove "..newId)
 							if(userObj) { remove(userObj) }
+							valueChangeCallback(newId, nil, nil, nil, userObj) // report the removed leaf, or listeners keep a stale item
 							raRemove(outRvVal, key) 
 						}
 					}
@@ -1255,27 +1264,27 @@ recValConnection = func ctx, outRv, rv, valueChangeCallback, parentId {
 		}
 	}, true)
 
-	return {
-		remove = func {
-			remove(raHookHandle)
-			if rvHandle { unhook(rvHandle) ; rvHandle = nil }
-		}
+	conn.remove = func {
+		remove(raHookHandle)
+		if rvHandle { unhook(rvHandle) ; rvHandle = nil }
 	}
+	return conn
 }
 
-api spine_createRecursiveValueConnection = func rvToRa, token, options, outRv, itemCallback {
+api spine_createRecursiveValueConnection = func rvToRa, token, options, outRv, itemCallback, itemRemovedCallback {
 	obj = createComposite()
 	items = {}
 	obj.currentItems = items
 	// if valueChangeCallback == nil {
 	//	valueChangeCallback = valueChangeCallback or func id, rv, val, rvSrc {
-		valueChangeCallback = func id, rv, val, rvSrc {
+		valueChangeCallback = func id, rv, val, rvSrc, owner {
 			if rv {
 				if not items[id] {
 					items[id] = createComposite()
 					// items[id] = {} 
 				}
 				items[id].val = val
+				items[id].owner = owner
 				onlyValueChange = items[id].rvSrc == rvSrc and items[id].rvDst == rv
 				if not onlyValueChange {
 					items[id].rvDst = rv			
@@ -1285,9 +1294,12 @@ api spine_createRecursiveValueConnection = func rvToRa, token, options, outRv, i
 				if itemCallback != nil {
 					itemCallback(id, items[id], onlyValueChange)
 				}	
-			} else {
+			} else if items[id] and (owner == nil or items[id].owner == owner) {
 				remove(items[id])
-				items[id] = nil		
+				items[id] = nil
+				if itemRemovedCallback != nil {
+					itemRemovedCallback(id)
+				}
 			}
 			return nil
 		}	
@@ -1314,14 +1326,20 @@ unaryOperator = func debug, forward, backward {
 		ctx = obj.hookContext()
 		handle = instantiateRec(ns, codeTree, ec)
 		items = {}
-		unaryCallback = func id, rvDst, val, rvSrc {
+		unaryCallback = func id, rvDst, val, rvSrc, owner {
 			if rvDst {
-				if items[id] == nil {
+				if items[id] == nil or items[id].rvSrc != rvSrc or items[id].rvDst != rvDst {
+					remove(items[id])
 					items[id] = connect(ctx, rvSrc, rvDst, debug, forward, backward)
+					items[id].rvSrc = rvSrc
+					items[id].rvDst = rvDst
 				}
-			} else {
-				remove(items[id])
-				items[id] = nil		
+				items[id].owner = owner
+			} else if items[id] and (owner == nil or items[id].owner == owner) {
+				rvDst = items[id].rvDst
+				remove(items[id]) // unhooking can flush one last forward write (e.g. -notReady = NaN), so clear after
+				items[id] = nil
+				set(rvDst, uninitialized)
 			}
 			return nil
 		}	
@@ -1765,6 +1783,7 @@ nameSpaceFind = func ns, token {
 
 		it = nsTreeBackward(it)
 	}
+	foundAt = it   // the block the binding was found on
 	if ret {
 		// make sure the ret is within scope
 
@@ -1787,7 +1806,33 @@ nameSpaceFind = func ns, token {
 					return ret
 				}
 				it = nsTreeParent(it)
-			}		
+			}
+		}
+
+		ownerAt = foundAt
+		if not (foundAt.nameSpaceWrite and foundAt.nameSpaceWrite[token] == ret) {
+			it = foundAt
+			while it {
+				if it.nameSpaceWrite and it.nameSpaceWrite[token] == ret {
+					ownerAt = it
+					break
+				}
+				it = nsTreeBackward(it)
+			}
+		}
+
+		fallbackScopeNs = ret.useSubTreeScope ? ownerAt : nsTreeParent(ownerAt)
+		if fallbackScopeNs == nil {
+			trace(spine, '   found global (via owner)')
+			return ret
+		}
+		it = nsTreeParent(ns)
+		while it {
+			if fallbackScopeNs == it {
+				trace(spine, '   found (via owner)')
+				return ret
+			}
+			it = nsTreeParent(it)
 		}
 	}
     trace(spine, '   not found')
@@ -2996,6 +3041,7 @@ tree = createTreeApi()
 
 api spineComp_return = func ns, args, returnVal {
 	v = nil
+	removed = false
 	closestDef = ns
 	while closestDef {
 		if closestDef.defReturnVal {
@@ -3005,19 +3051,20 @@ api spineComp_return = func ns, args, returnVal {
 	}
 	if closestDef {
 		v = spine_createValueConnection(args, 0, {def = uninitialized}, func v {
-			if v.getLastWriter() != v {
+			// unhooking flushes queued events, so a return being removed can still fire here and clobber its replacement
+			if not removed and v.getLastWriter() != v {
 				set(closestDef.defReturnVal, v.get(), v)
 			}
 		})		
 		ctx = createHookContext()
 		hook(ctx, closestDef.defReturnVal, func {
-			if closestDef.defReturnVal.lastWriter != v {
+			if not removed and closestDef.defReturnVal.lastWriter != v {
 				v.set(get(closestDef.defReturnVal), v)
 			}
 		})	
 	}
 
-	return { remove = func { remove(v) ; remove(ctx) } }
+	return { remove = func { removed = true ; remove(v) ; remove(ctx) } }
 }
 
 
@@ -3248,7 +3295,6 @@ api spineComp_createRoundOrFloor = func offset {
 		lastVal = nil
 		v = spine_createValueConnection(args, 0, {def = uninitialized}, func v {
 			val = v.get()
-			print('round '..val)			
 			if isReady(val) {
 				lastVal = floor(val + offset)
 				set(returnVal, lastVal)						
@@ -3591,7 +3637,7 @@ api spineComp_mix = func ns, args, returnVal {
 		} else {
 			rVal = aVal + iVal * (bVal - aVal)	
 		}	
-		set(returnVal, rVal)	
+		set(returnVal, rVal, ctx)	
 	}
 
 	a = spine_createValueConnection(args, 0, {def = uninitialized}, func a { aVal = a.get() ; update() })	
@@ -3599,11 +3645,17 @@ api spineComp_mix = func ns, args, returnVal {
 	i = spine_createValueConnection(args, 2, {strictDef = 0.5}    , func i { iVal = i.get() ; update() })	
 
 	hook(ctx, returnVal, func {
+		if returnVal.lastWriter == ctx {
+			return
+		}
 		prev = rVal
 		aVal = a.get()
 		bVal = b.get()
 		iVal = i.get()
 		rVal = get(returnVal)
+		if not (isFiniteNumber(rVal) and isFiniteNumber(prev) and isFiniteNumber(aVal) and isFiniteNumber(bVal) and isFiniteNumber(iVal)) {
+			return
+		}
 		diff = rVal - prev
 		if iVal > 0 and iVal < 1 {
 			aVal = aVal + diff * ((1 - iVal) + 2*iVal*(1 - iVal))
@@ -3901,7 +3953,9 @@ api spineComp_rotate = func ns, args, returnVal {
 			va = a.get()
 			if isFiniteNumber(vp[0]) and isFiniteNumber(vp[1]) and isFiniteNumber(va) {
 				r.set(rotate_inner(vp, va), r)
-			} 
+			} else {
+				r.set([uninitialized, uninitialized], r)
+			}
 		}
 	}
 
@@ -3953,7 +4007,9 @@ api spine_vec2_vec2_wrap = func inner_forward, inner_backward {
 				vp = p.get()
 				if isFiniteNumber(vp[0]) and isFiniteNumber(vp[1]) {
 					r.set(inner_forward(vp), r)
-				} 
+				} else {
+					r.set([uninitialized, uninitialized], r)
+				}
 			}
 		}
 
@@ -4252,15 +4308,22 @@ api spineComp_createReduce = func initFunc, f, finalFunc, diffReverse {
 		return uninitialized
 	}
 
+	removed = false
+
+	invalidate = func {
+		if valid {
+			later(func {
+				if removed { return }
+				valid = true
+				set(returnVal, calcReduce(), handle)
+			})
+			valid = false
+		}
+	}
+
 	onAnyChange = func id, item, onlyValueChange  {
 		if item.rvSrc.lastWriter != handle {
-			if valid {
-				later(func {
-					valid = true
-					set(returnVal, calcReduce(), handle)
-				})
-				valid = false
-			}
+			invalidate()
 		}
 	}
 
@@ -4289,13 +4352,14 @@ api spineComp_createReduce = func initFunc, f, finalFunc, diffReverse {
 
 	_unused = create(uninitialized) // todo: spine_createRecursiveValueConnection replicates an output structure, which we don't use... BAD!  
 
-	handle = spine_createRecursiveValueConnection(args, 0, {def = uninitialized}, _unused, onAnyChange)
-	
+	handle = spine_createRecursiveValueConnection(args, 0, {def = uninitialized}, _unused, onAnyChange, invalidate)
+
 	valid = true
 	set(returnVal, calcReduce(), handle)
 
 	return {
 		remove = func {
+			removed = true
 			remove(handle)
 			remove(ctx)
 		}
@@ -4401,7 +4465,7 @@ api spineComp_wrap3NumberArg = func innerFunc, def0, def1, def2 {
 		v2 = spine_createValueConnection(args, 2, {def = def2}, updateWrap3)
 		updateWrap3()	
 		return {
-			remove = func { remove(v0) ; remove(v1)  }
+			remove = func { remove(v0) ; remove(v1) ; remove(v2) }
 		}
 	}
 }
