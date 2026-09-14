@@ -2119,8 +2119,8 @@ api spineBlock_createReactiveExpression = func ns, codeTree, ec {
 
   spineContext = class reactiveCodeCtx {
 
-	parseLineToAST = func text, isContent {
-		parseToAST(text)
+	parseLineToASTs = func text, isContent {
+		parseToASTs(text)
 	}
 
 	  tree = createTreeApi()
@@ -2196,7 +2196,7 @@ api spineBlock_createReactiveExpression = func ns, codeTree, ec {
 			return true
 		} : nil
 
-		text = unparseCodeTree(consts.codeTreeArray, unparseConstant, unparseItems)
+		text = unparseASTs(consts.codeTreeArray, unparseConstant, unparseItems)
 
 		// if items where changed, make sure block is reparsed/recreated to hook up new constants
 		// Note that this interupts touch/mouse-dragging, ideally we would update/patch the AST 
@@ -2271,11 +2271,11 @@ api spineBlock_createReactiveExpression = func ns, codeTree, ec {
 				parentExpr.__debugLastText = text
 				res = nil
 				r = tryCall(func {
-					res = parseLineToAST(text, (tmpPrevExpr or parentExpr).codeTree.isContent) // parsing can be cached
+					res = parseLineToASTs(text, (tmpPrevExpr or parentExpr).codeTree.isContent) // parsing can be cached
 				})
 				if r.error {
 					print('ERROR createLineExpressions:\n'..r.shortError)
-					res = parseLineToAST("", (tmpPrevExpr or parentExpr).codeTree.isContent) // fix empty expr!
+					res = parseLineToASTs("", (tmpPrevExpr or parentExpr).codeTree.isContent) // fix empty expr!
 				}
 				assignLineIdRec(res.codeTreeArray, id) // try to avoid this since it allows reusing parsed structure
      
@@ -2335,8 +2335,8 @@ api spineBlock_createReactiveExpression = func ns, codeTree, ec {
 		subTree = expr.codeTree.subTree
 		if subTree {
 			print('UNPARSED'..serialize(subTree,10,10))
-			print('UNPARSED'..unparseCodeTree(subTree, nil))
-			print('UNPARSED'..unparseCodeTree([subTree], nil))
+			print('UNPARSED'..unparseASTs(subTree, nil))
+			print('UNPARSED'..unparseASTs([subTree], nil))
 			return (overrideFunc or createBlocksFromCodeTreeArray) (expr.codeTree.lineId, subTree, ownerExpr, nil)
 		} else {
 			return createSublinesExpressions(expr, ownerExpr, overrideFunc)		
